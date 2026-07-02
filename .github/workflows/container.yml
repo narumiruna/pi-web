@@ -17,7 +17,6 @@ jobs:
         with:
           images: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}
-            ghcr.io/${{ github.repository }}
           flavor: |
             latest=auto
           tags: |
