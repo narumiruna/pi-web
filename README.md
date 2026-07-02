@@ -10,7 +10,7 @@ Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-
 - Paste images directly into the chat box with `Ctrl+V`, preview attachments, and send them with the prompt.
 - Use a web terminal tab backed by a persistent local shell.
 - Browse workspace files, read text files, preview images, and auto-refresh file changes.
-- Use the Control room tab for projects, workspaces, git status, machines, auth/API keys, models, skills, plugins, and pi packages.
+- Use the Control room tab for projects, workspaces, git status, machines, auth/API keys, model switching, tool toggles, model-invoked skill toggles, plugins, and pi packages.
 - Run in one Fastify process with a Vite/React client; compatibility routes cover the bundled `third_party` pi-web API surfaces.
 
 ## Local development
@@ -37,6 +37,8 @@ CLI wrapper after build:
 
 ```bash
 node dist/server/cli.js --cwd /path/to/project --port 30141
+# or after npm link / global install
+pi-web --cwd /path/to/project --port 30141
 ```
 
 ## Docker
@@ -83,7 +85,6 @@ Useful environment variables:
 ## Checks
 
 ```bash
-npm run typecheck
-npm run build
-npm test
+npm run lint   # biome ci
+npm run ci     # biome ci + typecheck + tests + build
 ```

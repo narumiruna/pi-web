@@ -4,14 +4,19 @@
   "description": "Local-first web UI for pi-coding-agent.",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "bin": {
+    "pi-web": "./dist/server/cli.js"
+  },
   "scripts": {
     "dev": "bash -c 'trap \"kill 0\" EXIT; npm run dev:server & npm run dev:client & wait'",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite --host 0.0.0.0",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/index.js",
+    "lint": "biome ci .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.3",
@@ -20,6 +25,7 @@
     "fastify": "^5.6.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
     "@types/node": "^24.12.4",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

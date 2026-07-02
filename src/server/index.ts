@@ -1,6 +1,6 @@
 // biome-ignore-all lint: Pi SDK extension and websocket surfaces are intentionally dynamic here.
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -702,6 +702,66 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
             type: entry.isDirectory() ? "directory" : "file",
           })),
       };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Querystring: { cwd?: string; path?: string } }>(
+  "/api/files/watch",
+  async (request, reply) => {
+    try {
+      const cwd = resolve(request.query.cwd || DEFAULT_CWD);
+      const dir = resolveInside(cwd, request.query.path || ".");
+      const info = await stat(dir);
+      if (!info.isDirectory())
+        return reply.code(400).send({ error: "Not a directory" });
+
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          const send = (event: Json) =>
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+            );
+          send({ type: "ready", path: relative(cwd, dir) });
+          const watcher = watch(
+            dir,
+            { persistent: false },
+            (eventType, filename) =>
+              send({
+                type: "change",
+                eventType,
+                filename: String(filename ?? ""),
+                at: Date.now(),
+              }),
+          );
+          watcher.on("error", (error) =>
+            send({
+              type: "error",
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          );
+          const heartbeat = setInterval(
+            () => controller.enqueue(encoder.encode(":\n\n")),
+            30_000,
+          );
+          request.raw.on("close", () => {
+            clearInterval(heartbeat);
+            watcher.close();
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          });
+        },
+      });
+      return reply
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .send(stream);
     } catch (error) {
       return reply.code(400).send(jsonError(error));
     }

@@ -7,63 +7,89 @@ import React, {
   useState,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
+import { FilePane } from "./FilePane";
+import { TerminalPane } from "./TerminalPane";
+import type {
+  AttachedImage,
+  FileEntry,
+  ModelInfo,
+  SessionInfo,
+  ToolInfo,
+} from "./types";
 import "./styles.css";
 
-type SessionInfo = {
-  id: string;
-  path?: string;
-  cwd: string;
-  name?: string;
-  created: string;
-  modified: string;
-  messageCount: number;
-  firstMessage: string;
-};
-
-type ModelInfo = {
-  provider: string;
-  id: string;
-  name?: string;
-  contextWindow?: number;
-};
-type ToolInfo = { name: string; description?: string; active: boolean };
-type FileEntry = { name: string; path: string; type: "file" | "directory" };
-type AttachedImage = { data: string; mimeType: string; previewUrl: string };
 type Tab = "chat" | "terminal" | "file" | "settings";
+type SidebarLayout = {
+  sidebarWidth: number;
+  cwdHeight: number;
+  sessionsHeight: number;
+};
 
-const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
-const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const SIDEBAR_LAYOUT_STORAGE_KEY = "pi-web.sidebar-layout";
+const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
+  sidebarWidth: 310,
+  cwdHeight: 140,
+  sessionsHeight: 280,
+};
+const SIDEBAR_MIN_WIDTH = 240;
+const SIDEBAR_MAX_WIDTH = 620;
+const CWD_MIN_HEIGHT = 132;
+const CWD_MAX_HEIGHT = 260;
+const SIDEBAR_PANEL_MIN_HEIGHT = 140;
 
-function textFromContent(content: any): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) => {
-      if (part?.type === "text") return part.text ?? "";
-      if (part?.type === "thinking")
-        return part.thinking ? `\n[thinking]\n${part.thinking}\n` : "";
-      if (part?.type === "toolCall")
-        return `\n[tool: ${part.name ?? part.toolName}] ${JSON.stringify(part.arguments ?? part.input ?? {})}\n`;
-      if (part?.type === "image") return "\n[image]\n";
-      return "";
-    })
-    .join("");
+function clamp(value: number, min: number, max: number): number {
+  const safeMax = Math.max(min, max);
+  return Math.min(Math.max(value, min), safeMax);
 }
 
-function imagesFromContent(
-  content: any,
-): Array<{ data: string; mimeType: string }> {
-  if (!Array.isArray(content)) return [];
-  return content.flatMap((part) => {
-    if (part?.type !== "image") return [];
-    if (typeof part.data === "string" && typeof part.mimeType === "string")
-      return [{ data: part.data, mimeType: part.mimeType }];
-    const source = part.source;
-    if (source?.type === "base64" && typeof source.data === "string")
-      return [{ data: source.data, mimeType: source.mediaType ?? "image/png" }];
-    return [];
-  });
+function loadSidebarLayout(): SidebarLayout {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(SIDEBAR_LAYOUT_STORAGE_KEY) ?? "{}",
+    );
+    return {
+      sidebarWidth: clamp(
+        Number(parsed.sidebarWidth) || DEFAULT_SIDEBAR_LAYOUT.sidebarWidth,
+        SIDEBAR_MIN_WIDTH,
+        SIDEBAR_MAX_WIDTH,
+      ),
+      cwdHeight: clamp(
+        Number(parsed.cwdHeight) || DEFAULT_SIDEBAR_LAYOUT.cwdHeight,
+        CWD_MIN_HEIGHT,
+        CWD_MAX_HEIGHT,
+      ),
+      sessionsHeight: clamp(
+        Number(parsed.sessionsHeight) || DEFAULT_SIDEBAR_LAYOUT.sessionsHeight,
+        SIDEBAR_PANEL_MIN_HEIGHT,
+        720,
+      ),
+    };
+  } catch {
+    return DEFAULT_SIDEBAR_LAYOUT;
+  }
+}
+
+function formatRelativeTime(value: string): string {
+  const time = new Date(value).getTime();
+  if (Number.isNaN(time)) return "unknown";
+  const diffSeconds = Math.round((time - Date.now()) / 1000);
+  const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ["year", 60 * 60 * 24 * 365],
+    ["month", 60 * 60 * 24 * 30],
+    ["week", 60 * 60 * 24 * 7],
+    ["day", 60 * 60 * 24],
+    ["hour", 60 * 60],
+    ["minute", 60],
+  ];
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, seconds] of ranges) {
+    if (Math.abs(diffSeconds) >= seconds) {
+      return formatter.format(Math.round(diffSeconds / seconds), unit);
+    }
+  }
+  return "just now";
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -80,6 +106,7 @@ function App() {
   const [defaultCwd, setDefaultCwd] = useState<string>("");
   const [cwd, setCwd] = useState<string>("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [sessionFilter, setSessionFilter] = useState("");
   const [selected, setSelected] = useState<SessionInfo | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [streamText, setStreamText] = useState("");
@@ -91,13 +118,26 @@ function App() {
   const [commands, setCommands] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("chat");
+  const [sidebarLayout, setSidebarLayout] = useState<SidebarLayout>(() =>
+    loadSidebarLayout(),
+  );
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
   const [file, setFile] = useState<any>(null);
+  const sidebarRef = useRef<HTMLElement | null>(null);
   const eventsRef = useRef<EventSource | null>(null);
 
   const selectedId = selected?.id;
   const activeCwd = selected?.cwd || cwd || defaultCwd;
+  const filteredSessions = useMemo(() => {
+    const query = sessionFilter.trim().toLowerCase();
+    if (!query) return sessions;
+    return sessions.filter((session) =>
+      [session.name, session.firstMessage, session.cwd]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query)),
+    );
+  }, [sessions, sessionFilter]);
 
   const loadSessions = useCallback(async () => {
     const data = await api<{ sessions: SessionInfo[] }>("/api/sessions");
@@ -257,14 +297,121 @@ function App() {
     connectEvents,
   ]);
 
+  const loadFiles = useCallback(async () => {
+    if (!activeCwd) return;
+    try {
+      const data = await api<{ entries: FileEntry[] }>(
+        `/api/files/tree?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(filePath)}`,
+      );
+      setFiles(data.entries);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }, [activeCwd, filePath]);
+
+  useEffect(() => {
+    void loadFiles();
+  }, [loadFiles]);
+
   useEffect(() => {
     if (!activeCwd) return;
-    void api<{ entries: FileEntry[] }>(
-      `/api/files/tree?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(filePath)}`,
-    )
-      .then((data) => setFiles(data.entries))
-      .catch((error) => setNotice(error.message));
-  }, [activeCwd, filePath]);
+    const events = new EventSource(
+      `/api/files/watch?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(filePath)}`,
+    );
+    events.onmessage = (message) => {
+      const event = JSON.parse(message.data);
+      if (event.type === "ready" || event.type === "change") void loadFiles();
+    };
+    events.onerror = () => events.close();
+    return () => events.close();
+  }, [activeCwd, filePath, loadFiles]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      SIDEBAR_LAYOUT_STORAGE_KEY,
+      JSON.stringify(sidebarLayout),
+    );
+  }, [sidebarLayout]);
+
+  function availableSidebarPaneHeight() {
+    return Math.max(
+      SIDEBAR_PANEL_MIN_HEIGHT * 2 + CWD_MIN_HEIGHT,
+      (sidebarRef.current?.clientHeight ?? window.innerHeight) - 86,
+    );
+  }
+
+  function startSidebarWidthResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarLayout.sidebarWidth;
+    document.body.classList.add("resizing");
+    const onMove = (moveEvent: PointerEvent) => {
+      setSidebarLayout((value) => ({
+        ...value,
+        sidebarWidth: clamp(
+          startWidth + moveEvent.clientX - startX,
+          SIDEBAR_MIN_WIDTH,
+          SIDEBAR_MAX_WIDTH,
+        ),
+      }));
+    };
+    const onEnd = () => {
+      document.body.classList.remove("resizing");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  }
+
+  function startPaneResize(
+    pane: "cwd" | "sessions",
+    event: React.PointerEvent<HTMLDivElement>,
+  ) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startCwdHeight = sidebarLayout.cwdHeight;
+    const startSessionsHeight = sidebarLayout.sessionsHeight;
+    document.body.classList.add("resizing");
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = moveEvent.clientY - startY;
+      const available = availableSidebarPaneHeight();
+      setSidebarLayout((value) => {
+        if (pane === "cwd") {
+          const cwdHeight = clamp(
+            startCwdHeight + delta,
+            CWD_MIN_HEIGHT,
+            Math.min(CWD_MAX_HEIGHT, available - SIDEBAR_PANEL_MIN_HEIGHT * 2),
+          );
+          const sessionsHeight = clamp(
+            value.sessionsHeight,
+            SIDEBAR_PANEL_MIN_HEIGHT,
+            available - cwdHeight - SIDEBAR_PANEL_MIN_HEIGHT,
+          );
+          return { ...value, cwdHeight, sessionsHeight };
+        }
+        return {
+          ...value,
+          sessionsHeight: clamp(
+            startSessionsHeight + delta,
+            SIDEBAR_PANEL_MIN_HEIGHT,
+            available - value.cwdHeight - SIDEBAR_PANEL_MIN_HEIGHT,
+          ),
+        };
+      });
+    };
+    const onEnd = () => {
+      document.body.classList.remove("resizing");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  }
 
   async function newSession() {
     const data = await api<{ session: SessionInfo; status: any }>(
@@ -366,38 +513,103 @@ function App() {
   }
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">π web</div>
-        <label className="field-label">cwd</label>
-        <input
-          className="input"
-          value={cwd}
-          onChange={(event) => setCwd(event.target.value)}
+    <div
+      className="app"
+      style={
+        {
+          "--sidebar-width": `${sidebarLayout.sidebarWidth}px`,
+        } as React.CSSProperties
+      }
+    >
+      <aside
+        ref={sidebarRef}
+        className="sidebar"
+        style={
+          {
+            "--cwd-panel-height": `${sidebarLayout.cwdHeight}px`,
+            "--sessions-panel-height": `${sidebarLayout.sessionsHeight}px`,
+          } as React.CSSProperties
+        }
+      >
+        <div className="sidebar-header">
+          <div className="brand">π web</div>
+          <button
+            type="button"
+            className="layout-reset"
+            title="Restore default sidebar sizes"
+            onClick={() => setSidebarLayout(DEFAULT_SIDEBAR_LAYOUT)}
+          >
+            Reset layout
+          </button>
+        </div>
+        <section className="panel cwd-panel">
+          <div className="panel-title">cwd</div>
+          <input
+            className="input"
+            value={cwd}
+            onChange={(event) => setCwd(event.target.value)}
+          />
+          <button className="primary" onClick={() => void newSession()}>
+            New session
+          </button>
+        </section>
+        <div
+          className="pane-resizer"
+          role="separator"
+          aria-label="Resize CWD and sessions panels"
+          aria-orientation="horizontal"
+          onPointerDown={(event) => startPaneResize("cwd", event)}
         />
-        <button className="primary" onClick={() => void newSession()}>
-          New session
-        </button>
-        <section className="panel grow">
-          <div className="panel-title">Sessions</div>
+        <section className="panel sessions-panel">
+          <div className="panel-title">
+            Sessions
+            <span>
+              {filteredSessions.length}/{sessions.length}
+            </span>
+          </div>
+          <input
+            className="input sidebar-search"
+            value={sessionFilter}
+            onChange={(event) => setSessionFilter(event.target.value)}
+            placeholder="Search sessions"
+          />
           <div className="session-list">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                className={`session ${selected?.id === session.id ? "active" : ""}`}
-                onClick={() => setSelected(session)}
-              >
-                <span>
-                  {session.name || session.firstMessage || "Untitled"}
-                </span>
-                <small>{session.cwd}</small>
-              </button>
-            ))}
+            {filteredSessions.map((session) => {
+              const title = session.name || session.firstMessage || "Untitled";
+              return (
+                <button
+                  key={session.id}
+                  className={`session ${selected?.id === session.id ? "active" : ""}`}
+                  onClick={() => setSelected(session)}
+                >
+                  <span className="session-heading">
+                    <span>{title}</span>
+                    {selected?.id === session.id && <em>active</em>}
+                  </span>
+                  <small>{session.cwd}</small>
+                  <span className="session-meta">
+                    <span>{formatRelativeTime(session.modified)}</span>
+                    <span>{session.messageCount} msgs</span>
+                  </span>
+                </button>
+              );
+            })}
+            {filteredSessions.length === 0 && (
+              <div className="empty-small">No matching sessions.</div>
+            )}
           </div>
         </section>
+        <div
+          className="pane-resizer"
+          role="separator"
+          aria-label="Resize sessions and files panels"
+          aria-orientation="horizontal"
+          onPointerDown={(event) => startPaneResize("sessions", event)}
+        />
         <section className="panel files">
           <div className="panel-title">
-            Files
+            <span>Files</span>
+            <span className="auto-refresh">auto</span>
             {filePath && (
               <button
                 className="link"
@@ -408,6 +620,9 @@ function App() {
                 up
               </button>
             )}
+          </div>
+          <div className="file-path" title={filePath || "."}>
+            {filePath || "."}
           </div>
           <div className="file-list">
             {files.map((entry) => (
@@ -423,6 +638,13 @@ function App() {
           </div>
         </section>
       </aside>
+      <div
+        className="sidebar-width-resizer"
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        onPointerDown={startSidebarWidthResize}
+      />
 
       <main className="main">
         <header className="topbar">
@@ -501,6 +723,11 @@ function App() {
           <ControlRoom
             cwd={activeCwd}
             selected={selected}
+            status={status}
+            models={models}
+            tools={tools}
+            onModel={setModel}
+            onTools={saveTools}
             onNotice={setNotice}
             onSessionsChanged={async () => {
               await loadSessions();
@@ -510,349 +737,6 @@ function App() {
         )}
         {tab === "file" && <FilePane file={file} />}
       </main>
-    </div>
-  );
-}
-
-function ChatPane(props: {
-  messages: any[];
-  streamText: string;
-  streamThinking: string;
-  running: boolean;
-  onSend: (
-    text: string,
-    images?: AttachedImage[],
-    streamingBehavior?: "steer" | "followUp",
-  ) => Promise<void>;
-  onAbort: () => Promise<unknown> | undefined;
-  onCompact: () => Promise<unknown> | undefined;
-  status: any;
-  models: ModelInfo[];
-  onModel: (value: string) => Promise<void>;
-  onThinking: (level: string) => Promise<void>;
-  tools: ToolInfo[];
-  onTools: (tools: string[]) => Promise<void>;
-  commands: any[];
-}) {
-  const endRef = useRef<HTMLDivElement | null>(null);
-  useEffect(
-    () => endRef.current?.scrollIntoView({ block: "end" }),
-    [props.messages, props.streamText],
-  );
-  const activeToolNames = useMemo(
-    () => props.tools.filter((tool) => tool.active).map((tool) => tool.name),
-    [props.tools],
-  );
-
-  return (
-    <div className="chat-tab">
-      <div className="controls">
-        <select
-          value={
-            props.status?.model
-              ? `${props.status.model.provider}/${props.status.model.id}`
-              : ""
-          }
-          onChange={(event) => void props.onModel(event.target.value)}
-        >
-          <option value="">auto model</option>
-          {props.models.map((model) => (
-            <option
-              key={`${model.provider}/${model.id}`}
-              value={`${model.provider}/${model.id}`}
-            >
-              {model.name || model.id} · {model.provider}
-            </option>
-          ))}
-        </select>
-        <select
-          value={props.status?.thinkingLevel || "off"}
-          onChange={(event) => void props.onThinking(event.target.value)}
-        >
-          {THINKING.map((level) => (
-            <option key={level}>{level}</option>
-          ))}
-        </select>
-        <button onClick={() => void props.onCompact()}>Compact</button>
-        {props.running && (
-          <button className="danger" onClick={() => void props.onAbort()}>
-            Abort
-          </button>
-        )}
-        <details className="tools-menu">
-          <summary>Tools ({activeToolNames.length})</summary>
-          <div className="tools-list">
-            {props.tools.map((tool) => (
-              <label key={tool.name} title={tool.description}>
-                <input
-                  type="checkbox"
-                  checked={tool.active}
-                  onChange={(event) => {
-                    const next = new Set(activeToolNames);
-                    if (event.target.checked) next.add(tool.name);
-                    else next.delete(tool.name);
-                    void props.onTools([...next]);
-                  }}
-                />
-                {tool.name}
-              </label>
-            ))}
-            {props.tools.length === 0 && (
-              <small>No session tools loaded yet.</small>
-            )}
-          </div>
-        </details>
-      </div>
-      <div className="messages">
-        {props.messages.map((message, index) => (
-          <Message key={index} message={message} />
-        ))}
-        {(props.streamThinking || props.streamText) && (
-          <div className="message assistant streaming">
-            {props.streamThinking && (
-              <details open>
-                <summary>thinking</summary>
-                <pre>{props.streamThinking}</pre>
-              </details>
-            )}
-            <pre>{props.streamText}</pre>
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-      <Composer
-        running={props.running}
-        commands={props.commands}
-        onSend={props.onSend}
-      />
-    </div>
-  );
-}
-
-function Message({ message }: { message: any }) {
-  const role = message.role ?? "event";
-  const images = imagesFromContent(message.content);
-  return (
-    <div className={`message ${role}`}>
-      <div className="role">
-        {role}
-        {message.toolName ? ` · ${message.toolName}` : ""}
-      </div>
-      {images.map((image, index) => (
-        <img
-          key={index}
-          className="inline-image"
-          src={`data:${image.mimeType};base64,${image.data}`}
-          alt="attached"
-        />
-      ))}
-      <pre>{textFromContent(message.content)}</pre>
-    </div>
-  );
-}
-
-function Composer({
-  running,
-  commands,
-  onSend,
-}: {
-  running: boolean;
-  commands: any[];
-  onSend: (
-    text: string,
-    images?: AttachedImage[],
-    streamingBehavior?: "steer" | "followUp",
-  ) => Promise<void>;
-}) {
-  const [text, setText] = useState("");
-  const [images, setImages] = useState<AttachedImage[]>([]);
-  const fileInput = useRef<HTMLInputElement | null>(null);
-  const slashCommands = commands.filter(
-    (cmd) => text.startsWith("/") && cmd.name?.includes(text.slice(1)),
-  );
-
-  async function attach(files: FileList | File[]) {
-    const imageFiles = [...files].filter((file) =>
-      file.type.startsWith("image/"),
-    );
-    const next = await Promise.all(
-      imageFiles.map(
-        (file) =>
-          new Promise<AttachedImage>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () =>
-              resolve({
-                data: String(reader.result).split(",")[1] ?? "",
-                mimeType: file.type,
-                previewUrl: URL.createObjectURL(file),
-              });
-            reader.readAsDataURL(file);
-          }),
-      ),
-    );
-    setImages((value) => [...value, ...next]);
-  }
-
-  async function submit(mode?: "steer" | "followUp") {
-    if (!text.trim() && images.length === 0) return;
-    await onSend(text, images, mode);
-    setText("");
-    setImages([]);
-  }
-
-  return (
-    <div
-      className="composer"
-      onPaste={(event) => {
-        const files = [
-          ...new Map(
-            [
-              ...event.clipboardData.files,
-              ...[...event.clipboardData.items].map((item) => item.getAsFile()),
-            ]
-              .filter((file): file is File => Boolean(file))
-              .map((file) => [
-                `${file.name}:${file.size}:${file.type}:${file.lastModified}`,
-                file,
-              ]),
-          ).values(),
-        ];
-        if (!files.some((file) => file.type.startsWith("image/"))) return;
-        event.preventDefault();
-        void attach(files);
-      }}
-    >
-      {images.length > 0 && (
-        <div className="attachments">
-          {images.map((image, index) => (
-            <img key={index} src={image.previewUrl} alt="preview" />
-          ))}
-        </div>
-      )}
-      {slashCommands.length > 0 && (
-        <div className="slash-menu">
-          {slashCommands.slice(0, 8).map((cmd) => (
-            <button key={cmd.name} onClick={() => setText(`/${cmd.name} `)}>
-              /{cmd.name}
-              <small>{cmd.description}</small>
-            </button>
-          ))}
-        </div>
-      )}
-      <textarea
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void submit(running ? "steer" : undefined);
-          }
-        }}
-        placeholder={
-          running
-            ? "Steer the running agent, or queue a follow-up…"
-            : "Message pi… paste images or type /"
-        }
-      />
-      <div className="composer-actions">
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) =>
-            event.target.files && void attach(event.target.files)
-          }
-        />
-        <button onClick={() => fileInput.current?.click()}>Image</button>
-        {running && (
-          <button onClick={() => void submit("followUp")}>Follow-up</button>
-        )}
-        <button
-          className="primary"
-          onClick={() => void submit(running ? "steer" : undefined)}
-        >
-          {running ? "Steer" : "Send"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function TerminalPane({ cwd }: { cwd: string }) {
-  const [output, setOutput] = useState("");
-  const [input, setInput] = useState("");
-  const wsRef = useRef<WebSocket | null>(null);
-  const outputRef = useRef<HTMLPreElement | null>(null);
-
-  useEffect(() => {
-    const protocol = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(
-      `${protocol}://${location.host}/api/terminal?cwd=${encodeURIComponent(cwd)}`,
-    );
-    wsRef.current = ws;
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "data") setOutput((value) => value + msg.data);
-      if (msg.type === "exit")
-        setOutput((value) => value + `\n[process exited ${msg.code}]\n`);
-    };
-    return () => ws.close();
-  }, [cwd]);
-
-  useEffect(() => {
-    const outputEl = outputRef.current;
-    if (outputEl) outputEl.scrollTop = outputEl.scrollHeight;
-  }, [output]);
-
-  function send() {
-    wsRef.current?.send(JSON.stringify({ type: "input", data: `${input}\n` }));
-    setOutput((value) => value + `$ ${input}\n`);
-    setInput("");
-  }
-
-  return (
-    <div className="terminal-tab">
-      <pre className="terminal-output" ref={outputRef}>
-        {output}
-      </pre>
-      <div className="terminal-input">
-        <span>$</span>
-        <input
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") send();
-          }}
-          autoFocus
-        />
-        <button onClick={send}>Run</button>
-      </div>
-    </div>
-  );
-}
-
-function FilePane({ file }: { file: any }) {
-  if (!file) return <div className="empty">Open a file from the sidebar.</div>;
-  if (file.binary)
-    return (
-      <div className="empty">
-        Binary file: {file.path} ({file.size} bytes)
-      </div>
-    );
-  return (
-    <div className="file-pane">
-      <div className="file-title">{file.path}</div>
-      {file.image ? (
-        <img
-          className="file-image"
-          src={`data:${file.mimeType};base64,${file.content}`}
-          alt={file.path}
-        />
-      ) : (
-        <pre>{file.content}</pre>
-      )}
     </div>
   );
 }
