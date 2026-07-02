@@ -144,4 +144,4 @@ vite.config.ts.timestamp-*
 
 # Project
 third_party/
-
+data/pi/agent/auth.json
