@@ -39,5 +39,6 @@ RUN if [ -n "$PYTHON_VERSION" ]; then \
     else \
       uv python install --default --no-progress --no-config; \
     fi
+RUN uv tool install rust-just
 EXPOSE 30141
 CMD ["node", "dist/server/index.js"]
