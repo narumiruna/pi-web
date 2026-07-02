@@ -1,2 +1,3 @@
 - DO NOT EDIT `GOAL.md` DIRECTLY.
 - READ `GOAL.md`.
+- Strict: When touching a source file that exceeds 1000 lines or would exceed 1000 lines after the change, split it into multiple focused files first; do not add more code until it is split.
