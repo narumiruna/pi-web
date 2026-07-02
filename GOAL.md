@@ -3,5 +3,6 @@
 - terminal 和 pi-coding-agent 可以用 tabs 來切換
 - 對話窗可以貼圖片和顯示圖片
 - 要有 Dockerfile 和 compose.yml
-- web-ui 可以設定 model 和 api-key 等資訊
+- web-ui 可以設定和切換 model 和 api-key 等資訊
 - 使用 biome ci, pre-commit config
+- 介面可以設定是否開啟 tools, skills
