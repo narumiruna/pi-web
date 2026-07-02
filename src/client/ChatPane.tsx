@@ -1,5 +1,6 @@
 // biome-ignore-all lint: Pi SDK wire data is dynamic in this MVP.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getPastedImageFiles } from "./clipboardImages";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -225,20 +226,8 @@ function Composer({
     <div
       className="composer"
       onPaste={(event) => {
-        const files = [
-          ...new Map(
-            [
-              ...event.clipboardData.files,
-              ...[...event.clipboardData.items].map((item) => item.getAsFile()),
-            ]
-              .filter((file): file is File => Boolean(file))
-              .map((file) => [
-                `${file.name}:${file.size}:${file.type}:${file.lastModified}`,
-                file,
-              ]),
-          ).values(),
-        ];
-        if (!files.some((file) => file.type.startsWith("image/"))) return;
+        const files = getPastedImageFiles(event.clipboardData);
+        if (files.length === 0) return;
         event.preventDefault();
         void attach(files);
       }}
