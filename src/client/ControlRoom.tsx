@@ -14,6 +14,8 @@ type StatusSnapshot = {
   model?: { provider?: string; id?: string };
   isStreaming?: boolean;
 } | null;
+type Section = "session" | "git" | "model" | "tools" | "skills";
+type Tone = "ok" | "warning" | "danger" | "muted";
 
 type Card = {
   key: string;
@@ -21,6 +23,8 @@ type Card = {
   summary: string;
   detail: string;
   value: DashboardValue;
+  tone?: Tone;
+  section?: Section;
   actions?: Array<{ label: string; onClick: () => void }>;
 };
 
@@ -58,6 +62,8 @@ const providerName = (provider: DashboardValue) =>
   textField(provider, "name") ?? providerId(provider);
 const providerConfigured = (provider: DashboardValue) =>
   boolField(field(provider, "auth"), "configured");
+const shortTime = (value?: string) =>
+  value ? new Date(value).toLocaleString() : "unknown";
 
 export function ControlRoom({
   cwd,
@@ -83,6 +89,7 @@ export function ControlRoom({
   const [data, setData] = useState<Record<string, DashboardValue>>({});
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState<Card | null>(null);
+  const [section, setSection] = useState<Section>("session");
   const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
   const [savingProvider, setSavingProvider] = useState("");
   const [savingSkill, setSavingSkill] = useState("");
@@ -227,9 +234,25 @@ export function ControlRoom({
   const plugins = arrayField(data.plugins, "packages").length
     ? arrayField(data.plugins, "packages")
     : arrayField(data.plugins, "plugins");
+  const gitFiles = arrayField(data.git, "files").map(String);
   const gitOutput = textField(data.git, "output") ?? "";
+  const gitBranch = (textField(data.git, "branch") ?? gitOutput.split("\n")[0])
+    .replace(/^##\s*/, "")
+    .trim();
   const gitUnavailable =
     boolField(data.git, "available") === false || gitOutput.includes("ENOENT");
+  const gitClean = !gitUnavailable && boolField(data.git, "clean");
+  const gitTone: Tone = gitUnavailable || !gitClean ? "warning" : "ok";
+  const gitSummary = gitUnavailable
+    ? "Git unavailable"
+    : gitClean
+      ? "Working tree clean"
+      : "Uncommitted changes";
+  const gitDetail = gitUnavailable
+    ? "Git executable was not found in this environment."
+    : gitClean
+      ? gitBranch || "No changes detected"
+      : `${gitBranch || "Current branch"} · ${count(gitFiles, "changed file")}`;
   const model = status?.model
     ? `${status.model.provider}/${status.model.id}`
     : "auto model";
@@ -246,98 +269,110 @@ export function ControlRoom({
   const authSummary = auth.find(providerConfigured)
     ? `${providerName(auth.find(providerConfigured) as DashboardValue)} configured`
     : "No provider configured";
+  const enabledSkills = skills.filter(
+    (skill) => !boolField(skill as DashboardValue, "disableModelInvocation"),
+  );
+  const selectedTitle =
+    selected?.name || selected?.firstMessage || "No session selected";
 
   const cards: Card[] = [
     {
       key: "runtime",
       title: "Runtime",
-      summary: boolField(runtime, "ok")
-        ? `Running · ${textField(runtime, "runtime") ?? "local"} · v${textField(runtime, "version") ?? "?"}`
-        : "Runtime unavailable",
-      detail: `Model: ${model}`,
+      summary: boolField(runtime, "ok") ? "Running" : "Unavailable",
+      detail: `${textField(runtime, "runtime") ?? "local"} · v${textField(runtime, "version") ?? "?"}`,
       value: runtime,
+      tone: boolField(runtime, "ok") ? "ok" : "warning",
+      section: "session",
     },
     {
-      key: "projects",
-      title: "Projects",
-      summary: count(projects, "project"),
-      detail: cwd,
-      value: data.projects,
-      actions: [{ label: "Save project", onClick: () => void addProject() }],
+      key: "sessions",
+      title: "Session",
+      summary: selected ? selectedTitle : "Select a session",
+      detail: selected
+        ? `${selected.cwd} · ${selected.messageCount} msgs`
+        : "Create or pick a session to enable controls",
+      value: selected,
+      tone: selected ? "ok" : "warning",
+      section: "session",
     },
     {
-      key: "machines",
-      title: "Machines",
-      summary: machines.some(
-        (machine) => textField(machine as DashboardValue, "id") === "local",
-      )
-        ? "Local connected"
-        : count(machines, "machine"),
-      detail: "Local web runtime",
-      value: data.machines,
+      key: "git",
+      title: "Git status",
+      summary: gitSummary,
+      detail: gitDetail,
+      value: data.git,
+      tone: gitTone,
+      section: "git",
+      actions: [{ label: "Refresh", onClick: () => void refresh() }],
     },
     {
-      key: "auth",
-      title: "Auth",
-      summary: authSummary,
-      detail: count(auth, "provider"),
-      value: data.auth,
+      key: "model",
+      title: "Model & API Keys",
+      summary: model,
+      detail: authSummary,
+      value: { model: status?.model, auth: data.auth },
+      tone: auth.some(providerConfigured) ? "ok" : "warning",
+      section: "model",
+    },
+    {
+      key: "tools",
+      title: "Tools",
+      summary: `${activeToolNames.length}/${tools.length} enabled`,
+      detail: selected ? "Session tool access" : "Select a session first",
+      value: tools,
+      tone: selected ? "ok" : "muted",
+      section: "tools",
     },
     {
       key: "skills",
       title: "Skills",
-      summary: skills.some((skill) =>
-        (textField(skill as DashboardValue, "name") ?? "")
-          .toLowerCase()
-          .includes("python"),
-      )
-        ? "Python available"
-        : count(skills, "skill"),
-      detail: count(
-        skills.filter(
-          (skill) =>
-            !boolField(skill as DashboardValue, "disableModelInvocation"),
-        ),
-        "model-enabled skill",
-      ),
+      summary: `${enabledSkills.length}/${skills.length} model-enabled`,
+      detail: "Slash commands remain available when hidden from the model",
       value: data.skills,
+      tone: skills.length ? "ok" : "muted",
+      section: "skills",
     },
     {
-      key: "plugins",
-      title: "Plugins & packages",
-      summary: `${plugins.length} plugins · ${packages.length} packages`,
-      detail: "Install or disable from package manifests",
-      value: { plugins, packages },
-    },
-    {
-      key: "git",
-      title: "Git",
-      summary: gitUnavailable
-        ? "Git unavailable"
-        : boolField(data.git, "clean")
-          ? "Clean"
-          : gitOutput
-            ? "Dirty"
-            : "Git not available",
-      detail: gitUnavailable
-        ? "Git executable was not found in this environment."
-        : gitOutput.split("\n")[0] || "No git output",
-      value: data.git,
-      actions: [{ label: "Retry", onClick: () => void refresh() }],
+      key: "advanced",
+      title: "Advanced",
+      summary: `${projects.length} projects · ${machines.length} machines`,
+      detail: `${plugins.length} plugins · ${packages.length} packages`,
+      value: { projects, machines, plugins, packages },
+      tone: "muted",
     },
   ];
 
+  const navItems: Array<{
+    key: Section;
+    label: string;
+    meta: string;
+    tone?: Tone;
+  }> = [
+    {
+      key: "session",
+      label: "Session",
+      meta: selected ? "Active" : "Pick one",
+    },
+    { key: "git", label: "Git", meta: gitSummary, tone: gitTone },
+    { key: "model", label: "Model & API Keys", meta: authSummary },
+    { key: "tools", label: "Tools", meta: `${activeToolNames.length} enabled` },
+    { key: "skills", label: "Skills", meta: `${enabledSkills.length} enabled` },
+  ];
+
   return (
-    <div className="control-room">
-      <section className="hero-card compact-hero">
+    <div className="control-room product-dashboard">
+      <section className="dashboard-hero">
         <div>
+          <div className="eyebrow">Coding agent workspace</div>
           <h1>Control room</h1>
           <p>Local workspace: {cwd}</p>
-          <p>
-            Runtime: {cards[0].summary} · Model: {model}
-          </p>
         </div>
-        <div className="hero-actions">
+        <div className="hero-status">
+          <span className="status-pill ok">
+            {boolField(runtime, "ok") ? "Online" : "Offline"}
+          </span>
+          <span className="status-pill">{model}</span>
           <button
             type="button"
             className="primary"
@@ -345,21 +380,29 @@ export function ControlRoom({
           >
             {loading ? "Refreshing…" : "Refresh"}
           </button>
-          <button type="button" onClick={() => void addProject()}>
-            Save project
-          </button>
         </div>
       </section>
 
-      <div className="metric-grid">
+      <div className="metric-grid compact-metrics">
         {cards.map((card) => (
-          <section className="metric-card" key={card.key}>
-            <div className="panel-title">{card.title}</div>
+          <section className={`metric-card ${card.tone ?? ""}`} key={card.key}>
+            <div className="metric-heading">
+              <div className="panel-title">{card.title}</div>
+              {card.tone && <span className={`status-dot ${card.tone}`} />}
+            </div>
             <strong>{card.summary}</strong>
             <p>{card.detail}</p>
             <div className="card-actions">
+              {card.section && (
+                <button
+                  type="button"
+                  onClick={() => card.section && setSection(card.section)}
+                >
+                  Open
+                </button>
+              )}
               <button type="button" onClick={() => setDetails(card)}>
-                View details
+                Details
               </button>
               {card.actions?.map((action) => (
                 <button
@@ -375,241 +418,354 @@ export function ControlRoom({
         ))}
       </div>
 
-      <section className="panel settings-panel">
-        <div>
-          <div className="panel-title">Settings</div>
-          <p>
-            Switch models, store API keys, and decide which tools or skills the
-            agent may use.
-          </p>
-        </div>
-        <div className="settings-columns">
-          <section className="settings-card">
-            <div className="panel-title">Model</div>
-            <select
-              value={currentModelValue}
-              disabled={!selected || models.length === 0}
-              onChange={(event) => void onModel(event.target.value)}
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Control room sections">
+          {navItems.map((item) => (
+            <button
+              type="button"
+              key={item.key}
+              className={`${section === item.key ? "active" : ""} ${item.tone ?? ""}`}
+              onClick={() => setSection(item.key)}
             >
-              <option value="">auto model</option>
-              {currentModelValue && !currentModelKnown && (
-                <option value={currentModelValue}>{currentModelValue}</option>
-              )}
-              {models.map((item) => (
-                <option
-                  key={`${item.provider}/${item.id}`}
-                  value={`${item.provider}/${item.id}`}
-                >
-                  {item.name || item.id} · {item.provider}
-                </option>
-              ))}
-            </select>
-            <small>
-              {selected
-                ? "Changes apply to the selected session."
-                : "Select or create a session to switch models."}
-            </small>
-          </section>
+              <span>{item.label}</span>
+              <small>{item.meta}</small>
+            </button>
+          ))}
+        </nav>
 
-          <section className="settings-card wide-card">
-            <div className="settings-card-head">
-              <div className="panel-title">API keys & auth</div>
-              <span>{authSummary}</span>
-            </div>
-            <div className="provider-list">
-              {auth.map((provider) => {
-                const id = providerId(provider as DashboardValue);
-                const configured = providerConfigured(
-                  provider as DashboardValue,
-                );
-                return (
-                  <div
-                    className="provider-row"
-                    key={id || providerName(provider as DashboardValue)}
+        <section className="settings-workspace">
+          {section === "session" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Session</div>
+                  <h2>{selectedTitle}</h2>
+                  <p>
+                    {selected
+                      ? `${selected.cwd} · ${selected.messageCount} messages · modified ${shortTime(selected.modified)}`
+                      : "Select or create a session before changing model, tools, or exports."}
+                  </p>
+                </div>
+                <div className="hero-actions">
+                  <button type="button" onClick={() => void addProject()}>
+                    Save project
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selected}
+                    onClick={() => void renameSession()}
                   >
-                    <div>
-                      <strong>
-                        {providerName(provider as DashboardValue)}
-                      </strong>
-                      <small>
-                        {configured ? "configured" : "not configured"}
-                      </small>
-                    </div>
-                    <input
-                      type="password"
-                      placeholder={
-                        configured ? "•••••• saved" : "Paste API key"
-                      }
-                      value={apiKeyInputs[id] ?? ""}
-                      onChange={(event) =>
-                        setApiKeyInputs((value) => ({
-                          ...value,
-                          [id]: event.target.value,
-                        }))
-                      }
-                    />
-                    <button
-                      type="button"
-                      disabled={
-                        !apiKeyInputs[id]?.trim() || savingProvider === id
-                      }
-                      onClick={() =>
-                        void saveApiKey(provider as DashboardValue)
-                      }
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!configured || savingProvider === id}
-                      onClick={() =>
-                        void clearApiKey(provider as DashboardValue)
-                      }
-                    >
-                      Clear
-                    </button>
-                  </div>
-                );
-              })}
-              {auth.length === 0 && (
-                <div className="empty-small">No model providers reported.</div>
-              )}
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selected}
+                    onClick={() =>
+                      selected &&
+                      window.open(
+                        `/api/sessions/${selected.id}/export`,
+                        "_blank",
+                      )
+                    }
+                  >
+                    Export HTML
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    disabled={!selected}
+                    onClick={() => void deleteSession()}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+              <div className="summary-grid">
+                <div>
+                  <span>Runtime</span>
+                  <strong>{cards[0].summary}</strong>
+                  <small>{cards[0].detail}</small>
+                </div>
+                <div>
+                  <span>Projects</span>
+                  <strong>{count(projects, "project")}</strong>
+                  <small>{cwd}</small>
+                </div>
+                <div>
+                  <span>Machines</span>
+                  <strong>{count(machines, "machine")}</strong>
+                  <small>Local web runtime</small>
+                </div>
+              </div>
             </div>
-          </section>
+          )}
 
-          <section className="settings-card wide-card">
-            <div className="settings-card-head">
-              <div className="panel-title">Tools</div>
-              <span>{activeToolNames.length} enabled</span>
-            </div>
-            <div className="setting-actions">
-              <button
-                type="button"
-                disabled={!selected || tools.length === 0 || savingTools}
-                onClick={() => void updateTools(tools.map((tool) => tool.name))}
-              >
-                Enable all
-              </button>
-              <button
-                type="button"
-                disabled={!selected || tools.length === 0 || savingTools}
-                onClick={() => void updateTools([])}
-              >
-                Disable all
-              </button>
-            </div>
-            <div className="toggle-list">
-              {tools.map((tool) => {
-                const active = activeToolNames.includes(tool.name);
-                return (
-                  <label key={tool.name} title={tool.description}>
-                    <input
-                      type="checkbox"
-                      disabled={!selected || savingTools}
-                      checked={active}
-                      onChange={(event) => {
-                        const next = new Set(activeToolNames);
-                        if (event.target.checked) next.add(tool.name);
-                        else next.delete(tool.name);
-                        void updateTools([...next]);
-                      }}
-                    />
-                    <span>
-                      <strong>{tool.name}</strong>
-                      {tool.description && <small>{tool.description}</small>}
-                    </span>
-                  </label>
-                );
-              })}
-              {tools.length === 0 && (
+          {section === "git" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Git status</div>
+                  <h2>{gitSummary}</h2>
+                  <p>{gitDetail}</p>
+                </div>
+                <div className="hero-actions">
+                  <button type="button" onClick={() => setDetails(cards[2])}>
+                    View changes
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void refresh()}
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+              {gitFiles.length > 0 ? (
+                <div className="compact-list git-file-list">
+                  {gitFiles.slice(0, 12).map((file) => (
+                    <div key={file} className="compact-row warning">
+                      <span className="status-dot warning" />
+                      <strong>{file}</strong>
+                    </div>
+                  ))}
+                  {gitFiles.length > 12 && (
+                    <div className="empty-small">
+                      +{gitFiles.length - 12} more files in details.
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <div className="empty-small">
-                  Select a session to load and configure tools.
+                  {gitUnavailable
+                    ? "Git is unavailable in this runtime. Install git or use an image that includes it."
+                    : "No uncommitted changes reported."}
                 </div>
               )}
             </div>
-          </section>
+          )}
 
-          <section className="settings-card wide-card">
-            <div className="settings-card-head">
-              <div className="panel-title">Skills</div>
-              <span>{skills.length} available</span>
+          {section === "model" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Model & API Keys</div>
+                  <h2>{model}</h2>
+                  <p>
+                    {selected
+                      ? "Model changes apply to the selected session."
+                      : "Select a session to switch models."}
+                  </p>
+                </div>
+                <select
+                  value={currentModelValue}
+                  disabled={!selected || models.length === 0}
+                  onChange={(event) => void onModel(event.target.value)}
+                >
+                  <option value="">auto model</option>
+                  {currentModelValue && !currentModelKnown && (
+                    <option value={currentModelValue}>
+                      {currentModelValue}
+                    </option>
+                  )}
+                  {models.map((item) => (
+                    <option
+                      key={`${item.provider}/${item.id}`}
+                      value={`${item.provider}/${item.id}`}
+                    >
+                      {item.name || item.id} · {item.provider}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {auth.length === 0 ? (
+                <div className="empty-small">No model providers reported.</div>
+              ) : (
+                <table className="api-key-table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Status</th>
+                      <th>API Key</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auth.map((provider) => {
+                      const value = provider as DashboardValue;
+                      const id = providerId(value);
+                      const configured = providerConfigured(value);
+                      const name = providerName(value);
+                      return (
+                        <tr key={id || name}>
+                          <th scope="row">{name}</th>
+                          <td>
+                            <span
+                              className={`status-pill ${configured ? "ok" : "warning"}`}
+                            >
+                              {configured ? "Configured" : "Missing"}
+                            </span>
+                          </td>
+                          <td>
+                            <input
+                              type="password"
+                              placeholder={
+                                configured ? "•••••• saved" : "Paste API key"
+                              }
+                              value={apiKeyInputs[id] ?? ""}
+                              onChange={(event) =>
+                                setApiKeyInputs((current) => ({
+                                  ...current,
+                                  [id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </td>
+                          <td>
+                            <span className="row-actions">
+                              <button
+                                type="button"
+                                disabled={
+                                  !apiKeyInputs[id]?.trim() ||
+                                  savingProvider === id
+                                }
+                                onClick={() => void saveApiKey(value)}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!configured || savingProvider === id}
+                                onClick={() => void clearApiKey(value)}
+                              >
+                                Clear
+                              </button>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
-            <div className="toggle-list">
-              {skills.map((skill) => {
-                const value = skill as DashboardValue;
-                const filePath = textField(value, "filePath");
-                const enabled = !boolField(value, "disableModelInvocation");
-                return (
-                  <label key={filePath ?? textField(value, "name")}>
-                    <input
-                      type="checkbox"
-                      disabled={!filePath || savingSkill === filePath}
-                      checked={enabled}
-                      onChange={(event) =>
-                        void setSkillInvocation(value, event.target.checked)
-                      }
-                    />
-                    <span>
-                      <strong>
-                        {textField(value, "name") ?? "Unnamed skill"}
-                      </strong>
-                      <small>
+          )}
+
+          {section === "tools" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Tools</div>
+                  <h2>{activeToolNames.length} enabled</h2>
+                  <p>
+                    Keep this list compact; hover rows for full descriptions.
+                  </p>
+                </div>
+                <div className="hero-actions">
+                  <button
+                    type="button"
+                    disabled={!selected || tools.length === 0 || savingTools}
+                    onClick={() =>
+                      void updateTools(tools.map((tool) => tool.name))
+                    }
+                  >
+                    Enable all
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selected || tools.length === 0 || savingTools}
+                    onClick={() => void updateTools([])}
+                  >
+                    Disable all
+                  </button>
+                </div>
+              </div>
+              <div className="compact-list">
+                {tools.map((tool) => {
+                  const active = activeToolNames.includes(tool.name);
+                  return (
+                    <label
+                      className="compact-row"
+                      key={tool.name}
+                      title={tool.description}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!selected || savingTools}
+                        checked={active}
+                        onChange={(event) => {
+                          const next = new Set(activeToolNames);
+                          if (event.target.checked) next.add(tool.name);
+                          else next.delete(tool.name);
+                          void updateTools([...next]);
+                        }}
+                      />
+                      <strong>{tool.name}</strong>
+                      <span>{tool.description || "No description"}</span>
+                    </label>
+                  );
+                })}
+                {tools.length === 0 && (
+                  <div className="empty-small">
+                    Select a session to load tools.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {section === "skills" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Skills</div>
+                  <h2>{enabledSkills.length} model-enabled</h2>
+                  <p>
+                    Disable model invocation without removing slash-command
+                    access.
+                  </p>
+                </div>
+              </div>
+              <div className="compact-list">
+                {skills.map((skill) => {
+                  const value = skill as DashboardValue;
+                  const filePath = textField(value, "filePath");
+                  const enabled = !boolField(value, "disableModelInvocation");
+                  const name = textField(value, "name") ?? "Unnamed skill";
+                  return (
+                    <label
+                      className="compact-row"
+                      key={filePath ?? name}
+                      title={textField(value, "description")}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!filePath || savingSkill === filePath}
+                        checked={enabled}
+                        onChange={(event) =>
+                          void setSkillInvocation(value, event.target.checked)
+                        }
+                      />
+                      <strong>{name}</strong>
+                      <span>
                         {enabled
                           ? "Model can invoke automatically"
-                          : "Hidden from model; slash command still works"}
-                      </small>
-                      {textField(value, "description") && (
-                        <small>{textField(value, "description")}</small>
-                      )}
-                    </span>
-                  </label>
-                );
-              })}
-              {skills.length === 0 && (
-                <div className="empty-small">
-                  No skills found for this workspace.
-                </div>
-              )}
+                          : "Hidden from model"}
+                      </span>
+                    </label>
+                  );
+                })}
+                {skills.length === 0 && (
+                  <div className="empty-small">
+                    No skills found for this workspace.
+                  </div>
+                )}
+              </div>
             </div>
-          </section>
-        </div>
-      </section>
-
-      <section className="panel action-panel">
-        <div>
-          <div className="panel-title">Selected session actions</div>
-          <p>
-            {selected?.firstMessage || selected?.name || "No session selected"}
-          </p>
-        </div>
-        <div className="hero-actions">
-          <button
-            type="button"
-            disabled={!selected}
-            onClick={() => void renameSession()}
-          >
-            Rename
-          </button>
-          <button
-            type="button"
-            disabled={!selected}
-            onClick={() =>
-              selected &&
-              window.open(`/api/sessions/${selected.id}/export`, "_blank")
-            }
-          >
-            Export HTML
-          </button>
-          <button
-            type="button"
-            className="danger"
-            disabled={!selected}
-            onClick={() => void deleteSession()}
-          >
-            Delete
-          </button>
-        </div>
-      </section>
+          )}
+        </section>
+      </div>
 
       {details && (
         <div className="details-backdrop">

@@ -92,6 +92,19 @@ function formatRelativeTime(value: string): string {
   return "just now";
 }
 
+function noticeTone(message: string): "warning" | "danger" | "ok" | "info" {
+  const text = message.toLowerCase();
+  if (text.includes("rejected") || text.includes("warning")) return "warning";
+  if (text.includes("error") || text.includes("failed")) return "danger";
+  if (
+    text.includes("saved") ||
+    text.includes("updated") ||
+    text.includes("copied")
+  )
+    return "ok";
+  return "info";
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -684,8 +697,14 @@ function App() {
           </div>
         </header>
         {notice && (
-          <div className="notice" onClick={() => setNotice("")}>
-            {notice}
+          <div className={`notice ${noticeTone(notice)}`} role="status">
+            <span className="notice-icon" aria-hidden="true">
+              {noticeTone(notice) === "warning" ? "⚠" : "•"}
+            </span>
+            <strong>{notice}</strong>
+            <button type="button" onClick={() => setNotice("")}>
+              Dismiss
+            </button>
           </div>
         )}
         {tab === "chat" && (
