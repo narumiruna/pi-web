@@ -1,5 +1,5 @@
 {
-  "name": "pi-web",
+  "name": "@narumitw/pi-web",
   "version": "0.1.0",
   "description": "Local-first web UI for pi-coding-agent.",
   "license": "AGPL-3.0-only",
@@ -39,5 +39,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
