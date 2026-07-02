@@ -4,4 +4,4 @@
 - 對話窗可以貼圖片和顯示圖片
 - 要有 Dockerfile 和 compose.yml
 - web-ui 可以設定 model 和 api-key 等資訊
-- 使用 biome ci
+- 使用 biome ci, pre-commit config
