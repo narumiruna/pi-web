@@ -147,3 +147,4 @@ third_party/
 data/pi/agent/auth.json
 data/pi/agent/sessions/
 data/pi/agent/npm/
+data/workspace/
