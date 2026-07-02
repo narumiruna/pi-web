@@ -15,6 +15,7 @@ import {
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
+import { registerCompatRoutes } from "./compatRoutes.js";
 import { resolveInside } from "./pathSafety.js";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
@@ -376,20 +377,38 @@ await app.register(fastifyWebsocket);
 app.get("/api/config", async () => ({
   defaultCwd: DEFAULT_CWD,
   agentDir: getAgentDir(),
+  config: {},
+  effectiveConfig: {
+    uploads: { defaultFolder: ".pi-web/uploads" },
+    pathAccess: { allowedPaths: [] },
+  },
 }));
 
 app.get("/api/models", async () => {
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
   const models = await modelRegistry.getAvailable();
+  const modelList = modelRegistry.getAll().map((model) => ({
+    provider: model.provider,
+    id: model.id,
+    modelId: model.id,
+    name: model.name,
+    contextWindow: model.contextWindow,
+    reasoning: model.reasoning,
+  }));
   return {
     models: models.map((model) => ({
       provider: model.provider,
       id: model.id,
+      modelId: model.id,
       name: model.name,
       contextWindow: model.contextWindow,
       reasoning: model.reasoning,
     })),
+    modelList,
+    defaultModel: models[0]
+      ? { provider: models[0].provider, modelId: models[0].id }
+      : null,
   };
 });
 
@@ -728,7 +747,7 @@ app.get<{ Querystring: { cwd?: string } }>(
   { websocket: true },
   (socket: any, request) => {
     const cwd = resolve(request.query.cwd || DEFAULT_CWD);
-    const shell = process.env.SHELL || "/bin/sh";
+    const shell = process.env.PI_WEB_SHELL || "/bin/sh";
     const child = spawn(shell, [], {
       cwd,
       env: { ...process.env, TERM: "xterm-256color" },
@@ -759,6 +778,15 @@ app.get<{ Querystring: { cwd?: string } }>(
     socket.on("close", () => child.kill());
   },
 );
+
+registerCompatRoutes(app, {
+  defaultCwd: DEFAULT_CWD,
+  listSessions,
+  resolveSessionPath,
+  getLiveSession,
+  startSession,
+  liveSessions,
+});
 
 const clientDist = resolve(
   dirname(fileURLToPath(import.meta.url)),

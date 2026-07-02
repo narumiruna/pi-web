@@ -7,6 +7,8 @@
   --text: #e5e7eb;
   --muted: #94a3b8;
   --accent: #60a5fa;
+  --accent-2: #a78bfa;
+  --success: #34d399;
   --danger: #f87171;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -17,7 +19,18 @@
 }
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(96, 165, 250, 0.18),
+      transparent 34rem
+    ),
+    radial-gradient(
+      circle at bottom right,
+      rgba(167, 139, 250, 0.16),
+      transparent 30rem
+    ),
+    var(--bg);
   color: var(--text);
 }
 button,
@@ -80,8 +93,11 @@ pre {
 }
 .brand {
   font-size: 24px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, #fff, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  color: transparent;
 }
 .field-label,
 .panel-title {
@@ -157,14 +173,15 @@ pre {
   height: 100vh;
 }
 .topbar {
-  height: 54px;
+  min-height: 54px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 0 16px;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(16px);
 }
 .tabs {
   display: flex;
@@ -241,10 +258,15 @@ pre {
 }
 .message {
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px;
-  background: var(--panel);
+  border-radius: 18px;
+  padding: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--panel) 96%, white),
+    var(--panel)
+  );
   max-width: 980px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
 }
 .message.user {
   align-self: flex-end;
@@ -367,6 +389,81 @@ pre {
   object-fit: contain;
   align-self: center;
   margin: 20px;
+}
+.control-room {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+.hero-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(167, 139, 250, 0.12)),
+    color-mix(in srgb, var(--panel) 82%, transparent);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+}
+.hero-card h1 {
+  margin: 0 0 8px;
+  font-size: clamp(26px, 4vw, 44px);
+  letter-spacing: -0.05em;
+}
+.hero-card p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+}
+.eyebrow {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin: 0 0 8px !important;
+}
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.metric-card {
+  min-height: 190px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  overflow: hidden;
+}
+.metric-card strong {
+  display: block;
+  margin: 10px 0;
+  font-size: 28px;
+}
+.metric-card pre {
+  max-height: 110px;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.action-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
 }
 .empty {
   padding: 30px;

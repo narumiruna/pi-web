@@ -29,7 +29,7 @@ type ModelInfo = {
 type ToolInfo = { name: string; description?: string; active: boolean };
 type FileEntry = { name: string; path: string; type: "file" | "directory" };
 type AttachedImage = { data: string; mimeType: string; previewUrl: string };
-type Tab = "chat" | "terminal" | "file";
+type Tab = "chat" | "terminal" | "file" | "settings";
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -438,6 +438,12 @@ function App() {
             >
               Terminal
             </button>
+            <button
+              className={tab === "settings" ? "active" : ""}
+              onClick={() => setTab("settings")}
+            >
+              Control room
+            </button>
             {file && (
               <button
                 className={tab === "file" ? "active" : ""}
@@ -490,6 +496,17 @@ function App() {
           />
         )}
         {tab === "terminal" && <TerminalPane cwd={activeCwd} />}
+        {tab === "settings" && (
+          <ControlRoom
+            cwd={activeCwd}
+            selected={selected}
+            onNotice={setNotice}
+            onSessionsChanged={async () => {
+              await loadSessions();
+              setSelected(null);
+            }}
+          />
+        )}
         {tab === "file" && <FilePane file={file} />}
       </main>
     </div>
@@ -686,10 +703,13 @@ function Composer({
     <div
       className="composer"
       onPaste={(event) => {
-        const files = [...event.clipboardData.items]
-          .map((item) => item.getAsFile())
-          .filter(Boolean) as File[];
-        if (files.length) void attach(files);
+        const files = [
+          ...event.clipboardData.files,
+          ...[...event.clipboardData.items].map((item) => item.getAsFile()),
+        ].filter((file): file is File => Boolean(file));
+        if (!files.some((file) => file.type.startsWith("image/"))) return;
+        event.preventDefault();
+        void attach(files);
       }}
     >
       {images.length > 0 && (
@@ -750,11 +770,169 @@ function Composer({
   );
 }
 
+function ControlRoom({
+  cwd,
+  selected,
+  onNotice,
+  onSessionsChanged,
+}: {
+  cwd: string;
+  selected: SessionInfo | null;
+  onNotice: (message: string) => void;
+  onSessionsChanged: () => Promise<void>;
+}) {
+  const [data, setData] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!cwd) return;
+    setLoading(true);
+    const read = async (key: string, path: string, init?: RequestInit) => {
+      try {
+        return [key, await api<any>(path, init)];
+      } catch (error) {
+        return [
+          key,
+          { error: error instanceof Error ? error.message : String(error) },
+        ];
+      }
+    };
+    const entries = await Promise.all([
+      read("config", "/api/config"),
+      read("status", "/api/pi-web/status"),
+      read("projects", "/api/projects"),
+      read("machines", "/api/machines"),
+      read("auth", "/api/auth/providers"),
+      read("skills", `/api/skills?cwd=${encodeURIComponent(cwd)}`),
+      read("plugins", `/api/plugins?cwd=${encodeURIComponent(cwd)}`),
+      read("packages", "/api/pi-packages"),
+      read(
+        "git",
+        `/api/projects/${btoa(cwd).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}/workspaces/root/git/status`,
+      ),
+    ]);
+    setData(Object.fromEntries(entries));
+    setLoading(false);
+  }, [cwd]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function addProject() {
+    await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ path: cwd, name: cwd.split("/").pop() || cwd }),
+    });
+    await refresh();
+    onNotice("Project saved");
+  }
+
+  async function renameSession() {
+    if (!selected) return;
+    const name = prompt("Session name", selected.name || selected.firstMessage);
+    if (!name) return;
+    await api(`/api/sessions/${selected.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+    await onSessionsChanged();
+    onNotice("Session renamed");
+  }
+
+  async function deleteSession() {
+    if (!selected || !confirm("Delete this session file?")) return;
+    await api(`/api/sessions/${selected.id}`, { method: "DELETE" });
+    await onSessionsChanged();
+    onNotice("Session deleted");
+  }
+
+  const cards = [
+    ["Runtime", data.status, ["ok", "runtime", "version"]],
+    ["Projects", data.projects?.projects, ["length"]],
+    ["Machines", data.machines?.machines, ["length"]],
+    ["Auth providers", data.auth?.providers, ["length"]],
+    ["Skills", data.skills?.skills, ["length"]],
+    ["Pi packages", data.packages?.packages, ["length"]],
+    ["Plugins", data.plugins?.packages ?? data.plugins?.plugins, ["length"]],
+    ["Git", data.git, ["output"]],
+  ] as const;
+
+  return (
+    <div className="control-room">
+      <section className="hero-card">
+        <div>
+          <p className="eyebrow">third-party parity console</p>
+          <h1>Everything in one prettier control room.</h1>
+          <p>
+            Sessions, branches, files, terminals, projects, machines, auth,
+            models, skills, plugins, packages, and git share the same local UI.
+          </p>
+        </div>
+        <div className="hero-actions">
+          <button className="primary" onClick={() => void refresh()}>
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+          <button onClick={() => void addProject()}>Save project</button>
+        </div>
+      </section>
+      <div className="metric-grid">
+        {cards.map(([title, value]) => (
+          <section className="metric-card" key={title}>
+            <div className="panel-title">{title}</div>
+            <strong>
+              {Array.isArray(value)
+                ? value.length
+                : value?.error
+                  ? "error"
+                  : value?.ok !== undefined
+                    ? String(value.ok)
+                    : "ready"}
+            </strong>
+            <pre>
+              {(JSON.stringify(value ?? null, null, 2) ?? "null").slice(0, 900)}
+            </pre>
+          </section>
+        ))}
+      </div>
+      <section className="panel action-panel">
+        <div>
+          <div className="panel-title">Selected session actions</div>
+          <p>
+            {selected?.firstMessage || selected?.name || "No session selected"}
+          </p>
+        </div>
+        <div className="hero-actions">
+          <button disabled={!selected} onClick={() => void renameSession()}>
+            Rename
+          </button>
+          <button
+            disabled={!selected}
+            onClick={() =>
+              selected &&
+              window.open(`/api/sessions/${selected.id}/export`, "_blank")
+            }
+          >
+            Export HTML
+          </button>
+          <button
+            className="danger"
+            disabled={!selected}
+            onClick={() => void deleteSession()}
+          >
+            Delete
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TerminalPane({ cwd }: { cwd: string }) {
   const [output, setOutput] = useState("");
   const [input, setInput] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const outputRef = useRef<HTMLPreElement | null>(null);
 
   useEffect(() => {
     const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -771,7 +949,10 @@ function TerminalPane({ cwd }: { cwd: string }) {
     return () => ws.close();
   }, [cwd]);
 
-  useEffect(() => bottomRef.current?.scrollIntoView(), [output]);
+  useEffect(() => {
+    const outputEl = outputRef.current;
+    if (outputEl) outputEl.scrollTop = outputEl.scrollHeight;
+  }, [output]);
 
   function send() {
     wsRef.current?.send(JSON.stringify({ type: "input", data: `${input}\n` }));
@@ -781,9 +962,8 @@ function TerminalPane({ cwd }: { cwd: string }) {
 
   return (
     <div className="terminal-tab">
-      <pre className="terminal-output">
+      <pre className="terminal-output" ref={outputRef}>
         {output}
-        <span ref={bottomRef} />
       </pre>
       <div className="terminal-input">
         <span>$</span>
