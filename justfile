@@ -6,3 +6,9 @@ up:
 
 down:
     docker compose down --remove-orphans
+
+devup:
+    docker compose -f compose.dev.yml up -d --build --remove-orphans
+
+devdown:
+    docker compose -f compose.dev.yml down --remove-orphans
