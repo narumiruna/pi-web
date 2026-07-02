@@ -1,0 +1,772 @@
+// biome-ignore-all lint: Pi SDK extension and websocket surfaces are intentionally dynamic here.
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { dirname, extname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  AuthStorage,
+  buildSessionContext,
+  createAgentSession,
+  getAgentDir,
+  ModelRegistry,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
+import fastifyStatic from "@fastify/static";
+import fastifyWebsocket from "@fastify/websocket";
+import Fastify from "fastify";
+import { resolveInside } from "./pathSafety.js";
+
+type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
+type Json = Record<string, unknown>;
+
+const PORT = Number(process.env.PORT ?? 30141);
+const HOST = process.env.HOST ?? "127.0.0.1";
+const DEFAULT_CWD = resolve(
+  process.env.PI_WEB_CWD ?? process.env.WORKSPACE_ROOT ?? process.cwd(),
+);
+const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
+const sessionPathCache = new Map<string, string>();
+const liveSessions = new Map<string, WebSession>();
+
+function jsonError(error: unknown): { error: string } {
+  return { error: error instanceof Error ? error.message : String(error) };
+}
+
+function sessionInfo(
+  info: Awaited<ReturnType<typeof SessionManager.listAll>>[number],
+) {
+  sessionPathCache.set(info.id, info.path);
+  return {
+    id: info.id,
+    path: info.path,
+    cwd: info.cwd,
+    name: info.name,
+    created: info.created.toISOString(),
+    modified: info.modified.toISOString(),
+    messageCount: info.messageCount,
+    firstMessage: info.firstMessage,
+    parentSessionPath: info.parentSessionPath,
+  };
+}
+
+async function listSessions() {
+  const sessions = await SessionManager.listAll();
+  return sessions
+    .sort((a, b) => b.modified.getTime() - a.modified.getTime())
+    .map(sessionInfo);
+}
+
+async function resolveSessionPath(id: string): Promise<string | undefined> {
+  const cached = sessionPathCache.get(id);
+  if (cached && existsSync(cached)) return cached;
+  await listSessions();
+  return sessionPathCache.get(id);
+}
+
+function makeUiContext(webSession: WebSession): any {
+  return {
+    select: async (_title: string, options: string[]) => options[0],
+    confirm: async () => false,
+    input: async () => undefined,
+    editor: async () => undefined,
+    notify: (message: string, notifyType = "info") =>
+      webSession.broadcast({
+        type: "extension_ui",
+        method: "notify",
+        message,
+        notifyType,
+      }),
+    setStatus: (key: string, text?: string) =>
+      webSession.broadcast({
+        type: "extension_ui",
+        method: "setStatus",
+        key,
+        text,
+      }),
+    setWidget: (
+      key: string,
+      lines?: string[],
+      options?: { placement?: string },
+    ) =>
+      webSession.broadcast({
+        type: "extension_ui",
+        method: "setWidget",
+        key,
+        lines,
+        placement: options?.placement,
+      }),
+    setTitle: (title: string) =>
+      webSession.broadcast({ type: "extension_ui", method: "setTitle", title }),
+    setEditorText: (text: string) =>
+      webSession.broadcast({
+        type: "extension_ui",
+        method: "setEditorText",
+        text,
+      }),
+    pasteToEditor: (text: string) =>
+      webSession.broadcast({
+        type: "extension_ui",
+        method: "setEditorText",
+        text,
+      }),
+    custom: async () => undefined,
+    onTerminalInput: () => () => {},
+    getEditorText: () => "",
+    addAutocompleteProvider: () => {},
+    setWorkingMessage: () => {},
+    setWorkingVisible: () => {},
+    setWorkingIndicator: () => {},
+    setHiddenThinkingLabel: () => {},
+    setFooter: () => {},
+    setHeader: () => {},
+    setEditorComponent: () => {},
+    getEditorComponent: () => undefined,
+    getAllThemes: () => [],
+    getTheme: () => undefined,
+    setTheme: () => ({
+      success: false,
+      error: "Theme switching is not available in pi-web.",
+    }),
+    getToolsExpanded: () => false,
+    setToolsExpanded: () => {},
+    get theme() {
+      return undefined;
+    },
+  };
+}
+
+class WebSession {
+  private listeners = new Set<(event: Json) => void>();
+  private unsubscribe?: () => void;
+  private promptRunning = false;
+  readonly ready: Promise<void>;
+
+  constructor(readonly inner: LiveSession) {
+    this.unsubscribe = inner.subscribe((event) => {
+      this.broadcast(event as Json);
+      if (
+        [
+          "agent_start",
+          "agent_end",
+          "compaction_start",
+          "compaction_end",
+          "queue_update",
+          "thinking_level_changed",
+        ].includes((event as Json).type as string)
+      ) {
+        this.broadcast({ type: "status", status: this.status() });
+      }
+    });
+    this.ready = inner
+      .bindExtensions({
+        mode: "rpc",
+        uiContext: makeUiContext(this),
+        onError: (error) =>
+          this.broadcast({ type: "extension_error", ...error }),
+      } as any)
+      .catch((error) => {
+        this.broadcast({
+          type: "session_error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }
+
+  get id() {
+    return this.inner.sessionId;
+  }
+  get cwd() {
+    return this.inner.sessionManager.getCwd();
+  }
+
+  on(listener: (event: Json) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  broadcast(event: Json) {
+    for (const listener of this.listeners) listener(event);
+  }
+
+  status() {
+    const model = this.inner.model;
+    const stats = safe(() => this.inner.getSessionStats());
+    return {
+      sessionId: this.inner.sessionId,
+      sessionFile: this.inner.sessionFile,
+      sessionName: this.inner.sessionName,
+      cwd: this.cwd,
+      isStreaming: this.inner.isStreaming || this.promptRunning,
+      isCompacting: this.inner.isCompacting,
+      pendingMessageCount: this.inner.pendingMessageCount,
+      model: model
+        ? {
+            provider: model.provider,
+            id: model.id,
+            name: model.name,
+            contextWindow: model.contextWindow,
+          }
+        : null,
+      thinkingLevel: this.inner.thinkingLevel,
+      contextUsage: this.inner.getContextUsage() ?? null,
+      tokens: stats?.tokens ?? null,
+      cost: stats?.cost ?? 0,
+      activeTools: this.inner.getActiveToolNames(),
+    };
+  }
+
+  async prompt(
+    text: string,
+    images?: any[],
+    streamingBehavior?: "steer" | "followUp",
+  ) {
+    await this.ready;
+    if (this.inner.isStreaming && streamingBehavior === "steer") {
+      await this.inner.steer(text, images);
+      this.broadcast({ type: "status", status: this.status() });
+      return;
+    }
+    if (this.inner.isStreaming && streamingBehavior === "followUp") {
+      await this.inner.followUp(text, images);
+      this.broadcast({ type: "status", status: this.status() });
+      return;
+    }
+
+    this.promptRunning = true;
+    this.broadcast({ type: "status", status: this.status() });
+    void this.inner
+      .prompt(text, {
+        ...(images?.length ? { images } : {}),
+        source: "rpc",
+      } as any)
+      .catch((error) =>
+        this.broadcast({
+          type: "session_error",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      )
+      .finally(() => {
+        this.promptRunning = false;
+        this.broadcast({ type: "prompt_done" });
+        this.broadcast({ type: "status", status: this.status() });
+      });
+  }
+
+  dispose() {
+    this.unsubscribe?.();
+    this.inner.dispose();
+  }
+}
+
+function safe<T>(fn: () => T): T | undefined {
+  try {
+    return fn();
+  } catch {
+    return undefined;
+  }
+}
+
+async function startSession(
+  cwd: string,
+  sessionFile?: string,
+  toolNames?: string[],
+): Promise<WebSession> {
+  const sessionManager = sessionFile
+    ? SessionManager.open(sessionFile)
+    : SessionManager.create(cwd);
+  const { session } = await createAgentSession({
+    cwd,
+    agentDir: getAgentDir(),
+    sessionManager,
+    ...(toolNames !== undefined ? { tools: toolNames } : {}),
+  });
+  if (toolNames !== undefined) session.setActiveToolsByName(toolNames);
+  const webSession = new WebSession(session);
+  liveSessions.set(session.sessionId, webSession);
+  if (session.sessionFile)
+    sessionPathCache.set(session.sessionId, session.sessionFile);
+  return webSession;
+}
+
+async function getLiveSession(id: string): Promise<WebSession> {
+  const live = liveSessions.get(id);
+  if (live) return live;
+  const file = await resolveSessionPath(id);
+  if (!file) throw new Error("Session not found");
+  const manager = SessionManager.open(file);
+  return startSession(
+    manager.getCwd() || manager.getHeader()?.cwd || DEFAULT_CWD,
+    file,
+  );
+}
+
+function normalizeImages(images: unknown): any[] | undefined {
+  if (!Array.isArray(images)) return undefined;
+  return images
+    .map((image) => {
+      if (!image || typeof image !== "object") return undefined;
+      const item = image as Record<string, unknown>;
+      const data = item.data;
+      const mimeType = item.mimeType;
+      if (typeof data !== "string" || typeof mimeType !== "string")
+        return undefined;
+      return { type: "image", data, mimeType };
+    })
+    .filter(Boolean);
+}
+
+function commandList(session: LiveSession) {
+  const extensionCommands = (
+    session.extensionRunner.getRegisteredCommands() as any[]
+  ).map((cmd) => ({
+    name: cmd.invocationName ?? cmd.name,
+    description: cmd.description,
+    source: "extension",
+  }));
+  const prompts = session.promptTemplates.map((template: any) => ({
+    name: template.name,
+    description: template.description,
+    source: "prompt",
+  }));
+  const skills = session.resourceLoader
+    .getSkills()
+    .skills.map((skill: any) => ({
+      name: `skill:${skill.name}`,
+      description: skill.description,
+      source: "skill",
+    }));
+  return [...extensionCommands, ...prompts, ...skills].filter(
+    (cmd) => cmd.name,
+  );
+}
+
+function mimeFromPath(path: string): string {
+  const ext = extname(path).toLowerCase();
+  if ([".png"].includes(ext)) return "image/png";
+  if ([".jpg", ".jpeg"].includes(ext)) return "image/jpeg";
+  if ([".gif"].includes(ext)) return "image/gif";
+  if ([".webp"].includes(ext)) return "image/webp";
+  if ([".svg"].includes(ext)) return "image/svg+xml";
+  return "text/plain";
+}
+
+function isLikelyText(path: string): boolean {
+  const ext = extname(path).toLowerCase();
+  return ![
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".tar",
+    ".wasm",
+  ].includes(ext);
+}
+
+const app = Fastify({
+  logger: true,
+  bodyLimit: Number(process.env.PI_WEB_BODY_LIMIT ?? 50 * 1024 * 1024),
+});
+await app.register(fastifyWebsocket);
+
+app.get("/api/config", async () => ({
+  defaultCwd: DEFAULT_CWD,
+  agentDir: getAgentDir(),
+}));
+
+app.get("/api/models", async () => {
+  const authStorage = AuthStorage.create();
+  const modelRegistry = ModelRegistry.create(authStorage);
+  const models = await modelRegistry.getAvailable();
+  return {
+    models: models.map((model) => ({
+      provider: model.provider,
+      id: model.id,
+      name: model.name,
+      contextWindow: model.contextWindow,
+      reasoning: model.reasoning,
+    })),
+  };
+});
+
+app.get("/api/sessions", async (_request, reply) => {
+  try {
+    return { sessions: await listSessions() };
+  } catch (error) {
+    return reply.code(500).send(jsonError(error));
+  }
+});
+
+app.post<{ Body: { cwd?: string; toolNames?: string[] } }>(
+  "/api/sessions",
+  async (request, reply) => {
+    try {
+      const cwd = resolve(request.body?.cwd || DEFAULT_CWD);
+      const session = await startSession(
+        cwd,
+        undefined,
+        request.body?.toolNames,
+      );
+      return {
+        session: {
+          id: session.id,
+          path: session.inner.sessionFile,
+          cwd: session.cwd,
+          created: new Date().toISOString(),
+          modified: new Date().toISOString(),
+          messageCount: 0,
+          firstMessage: "",
+        },
+        status: session.status(),
+      };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Params: { id: string }; Querystring: { leafId?: string } }>(
+  "/api/sessions/:id/messages",
+  async (request, reply) => {
+    try {
+      const live = liveSessions.get(request.params.id);
+      const file =
+        live?.inner.sessionFile ??
+        (await resolveSessionPath(request.params.id));
+      if (!file) return reply.code(404).send({ error: "Session not found" });
+      const manager = SessionManager.open(file);
+      const entries = manager.getEntries();
+      const context = buildSessionContext(entries as any, request.query.leafId);
+      return {
+        messages: context.messages,
+        leafId: manager.getLeafId(),
+        model: context.model,
+        thinkingLevel: context.thinkingLevel,
+        tree: manager.getTree(),
+      };
+    } catch (error) {
+      return reply.code(500).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Params: { id: string } }>(
+  "/api/sessions/:id/status",
+  async (request, reply) => {
+    try {
+      const live = liveSessions.get(request.params.id);
+      if (live) return { running: true, status: live.status() };
+      const file = await resolveSessionPath(request.params.id);
+      if (!file) return reply.code(404).send({ error: "Session not found" });
+      const manager = SessionManager.open(file);
+      return {
+        running: false,
+        status: {
+          sessionId: manager.getSessionId(),
+          sessionFile: file,
+          sessionName: manager.getSessionName(),
+          cwd: manager.getCwd(),
+          isStreaming: false,
+          isCompacting: false,
+          pendingMessageCount: 0,
+        },
+      };
+    } catch (error) {
+      return reply.code(500).send(jsonError(error));
+    }
+  },
+);
+
+app.post<{
+  Params: { id: string };
+  Body: {
+    text?: string;
+    images?: unknown;
+    streamingBehavior?: "steer" | "followUp";
+  };
+}>("/api/sessions/:id/prompt", async (request, reply) => {
+  try {
+    const text = request.body?.text;
+    if (typeof text !== "string")
+      return reply.code(400).send({ error: "text is required" });
+    const session = await getLiveSession(request.params.id);
+    await session.prompt(
+      text,
+      normalizeImages(request.body?.images),
+      request.body?.streamingBehavior,
+    );
+    return { accepted: true, status: session.status() };
+  } catch (error) {
+    return reply.code(400).send(jsonError(error));
+  }
+});
+
+app.post<{ Params: { id: string } }>(
+  "/api/sessions/:id/abort",
+  async (request, reply) => {
+    try {
+      const session = await getLiveSession(request.params.id);
+      await session.inner.abort();
+      return { aborted: true };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.post<{ Params: { id: string }; Body: { instructions?: string } }>(
+  "/api/sessions/:id/compact",
+  async (request, reply) => {
+    try {
+      const session = await getLiveSession(request.params.id);
+      const result = await session.inner.compact(request.body?.instructions);
+      return { result };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Params: { id: string } }>(
+  "/api/sessions/:id/tools",
+  async (request, reply) => {
+    try {
+      const session = await getLiveSession(request.params.id);
+      const active = new Set(session.inner.getActiveToolNames());
+      return {
+        tools: session.inner.getAllTools().map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          active: active.has(tool.name),
+        })),
+      };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.post<{ Params: { id: string }; Body: { toolNames?: string[] } }>(
+  "/api/sessions/:id/tools",
+  async (request, reply) => {
+    try {
+      const session = await getLiveSession(request.params.id);
+      session.inner.setActiveToolsByName(request.body?.toolNames ?? []);
+      return { tools: session.inner.getActiveToolNames() };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Params: { id: string } }>(
+  "/api/sessions/:id/commands",
+  async (request, reply) => {
+    try {
+      const session = await getLiveSession(request.params.id);
+      await session.ready;
+      return { commands: commandList(session.inner) };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.post<{
+  Params: { id: string };
+  Body: { provider?: string; modelId?: string };
+}>("/api/sessions/:id/model", async (request, reply) => {
+  try {
+    const provider = request.body?.provider;
+    const modelId = request.body?.modelId;
+    if (!provider || !modelId)
+      return reply
+        .code(400)
+        .send({ error: "provider and modelId are required" });
+    const session = await getLiveSession(request.params.id);
+    const model = session.inner.modelRegistry.find(provider, modelId);
+    if (!model) return reply.code(404).send({ error: "Model not found" });
+    await session.inner.setModel(model);
+    return { status: session.status() };
+  } catch (error) {
+    return reply.code(400).send(jsonError(error));
+  }
+});
+
+app.post<{ Params: { id: string }; Body: { level?: string } }>(
+  "/api/sessions/:id/thinking",
+  async (request, reply) => {
+    try {
+      const level = request.body?.level;
+      if (!level) return reply.code(400).send({ error: "level is required" });
+      const session = await getLiveSession(request.params.id);
+      session.inner.setThinkingLevel(level as any);
+      return { status: session.status() };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Params: { id: string } }>(
+  "/api/sessions/:id/events",
+  async (request, reply) => {
+    let session: WebSession;
+    try {
+      session = await getLiveSession(request.params.id);
+    } catch {
+      return reply.code(404).send({ error: "Session not found" });
+    }
+
+    const stream = new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        const send = (event: Json) =>
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
+        send({
+          type: "connected",
+          sessionId: session.id,
+          status: session.status(),
+        });
+        const unsubscribe = session.on(send);
+        const heartbeat = setInterval(
+          () => controller.enqueue(encoder.encode(":\n\n")),
+          30_000,
+        );
+        request.raw.on("close", () => {
+          clearInterval(heartbeat);
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        });
+      },
+    });
+    return reply
+      .header("Content-Type", "text/event-stream")
+      .header("Cache-Control", "no-cache")
+      .send(stream);
+  },
+);
+
+app.get<{ Querystring: { cwd?: string; path?: string } }>(
+  "/api/files/tree",
+  async (request, reply) => {
+    try {
+      const cwd = resolve(request.query.cwd || DEFAULT_CWD);
+      const dir = resolveInside(cwd, request.query.path || ".");
+      const entries = await readdir(dir, { withFileTypes: true });
+      return {
+        cwd,
+        path: relative(cwd, dir),
+        entries: entries
+          .filter(
+            (entry) => entry.name !== "node_modules" && entry.name !== ".git",
+          )
+          .sort(
+            (a, b) =>
+              Number(b.isDirectory()) - Number(a.isDirectory()) ||
+              a.name.localeCompare(b.name),
+          )
+          .slice(0, 300)
+          .map((entry) => ({
+            name: entry.name,
+            path: relative(cwd, join(dir, entry.name)),
+            type: entry.isDirectory() ? "directory" : "file",
+          })),
+      };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Querystring: { cwd?: string; path?: string } }>(
+  "/api/files/content",
+  async (request, reply) => {
+    try {
+      const cwd = resolve(request.query.cwd || DEFAULT_CWD);
+      const file = resolveInside(cwd, request.query.path || ".");
+      const info = await stat(file);
+      if (!info.isFile()) return reply.code(400).send({ error: "Not a file" });
+      const mimeType = mimeFromPath(file);
+      const image = mimeType.startsWith("image/");
+      if (!image && (!isLikelyText(file) || info.size > MAX_TEXT_FILE_BYTES)) {
+        return {
+          path: relative(cwd, file),
+          size: info.size,
+          binary: true,
+          content: "",
+          mimeType,
+        };
+      }
+      const buffer = await readFile(file);
+      return {
+        path: relative(cwd, file),
+        size: info.size,
+        binary: false,
+        image,
+        mimeType,
+        content: image ? buffer.toString("base64") : buffer.toString("utf8"),
+      };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Querystring: { cwd?: string } }>(
+  "/api/terminal",
+  { websocket: true },
+  (socket: any, request) => {
+    const cwd = resolve(request.query.cwd || DEFAULT_CWD);
+    const shell = process.env.SHELL || "/bin/sh";
+    const child = spawn(shell, [], {
+      cwd,
+      env: { ...process.env, TERM: "xterm-256color" },
+      stdio: "pipe",
+    });
+    const send = (event: Json) => {
+      if (socket.readyState === 1) socket.send(JSON.stringify(event));
+    };
+    send({ type: "data", data: `$ ${shell} (${cwd})\n` });
+    child.stdout.on("data", (chunk) =>
+      send({ type: "data", data: chunk.toString() }),
+    );
+    child.stderr.on("data", (chunk) =>
+      send({ type: "data", data: chunk.toString() }),
+    );
+    child.on("close", (code) => send({ type: "exit", code }));
+    socket.on("message", (raw: Buffer | string) => {
+      const text = raw.toString();
+      try {
+        const msg = JSON.parse(text);
+        if (msg.type === "input" && typeof msg.data === "string")
+          child.stdin.write(msg.data);
+        if (msg.type === "close") child.kill();
+      } catch {
+        child.stdin.write(text);
+      }
+    });
+    socket.on("close", () => child.kill());
+  },
+);
+
+const clientDist = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../client",
+);
+if (existsSync(clientDist)) {
+  await app.register(fastifyStatic, { root: clientDist });
+  app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
+}
+
+await app.listen({ port: PORT, host: HOST });

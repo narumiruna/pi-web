@@ -1,0 +1,16 @@
+services:
+  pi-web:
+    build: .
+    ports:
+      - "127.0.0.1:30141:30141"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 30141
+      WORKSPACE_ROOT: /workspace
+      HOME: /home/node
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    volumes:
+      - ${HOME}/.pi/agent:/home/node/.pi/agent
+      - ${PI_WEB_WORKSPACE:-./workspace}:/workspace
