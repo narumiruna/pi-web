@@ -27,7 +27,7 @@ describe("workspace image markdown", () => {
 
   it("builds the safe server URL", () => {
     expect(workspaceImageUrl("/tmp/work space", "docs/a b.svg")).toBe(
-      "/api/files/image?cwd=%2Ftmp%2Fwork%20space&path=docs%2Fa%20b.svg",
+      "/api/files/image?cwd=%2Ftmp%2Fwork+space&path=docs%2Fa+b.svg",
     );
   });
 });

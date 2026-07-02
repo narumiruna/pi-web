@@ -1,6 +1,7 @@
 // biome-ignore-all lint: Pi SDK/websocket wire data is dynamic in this MVP.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { api } from "./api";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
 import { FilePane } from "./FilePane";
@@ -16,7 +17,6 @@ import type {
 } from "./types";
 import { noticeTone, sessionTitle } from "./uiText";
 import "./styles.css";
-import "./uiux.css";
 
 type Tab = "chat" | "terminal" | "file" | "settings";
 
@@ -38,19 +38,6 @@ function applyTheme(theme: Theme) {
   const next = resolvedTheme(theme);
   document.documentElement.dataset.theme = next;
   document.documentElement.style.colorScheme = next;
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error ?? res.statusText);
-  return json as T;
 }
 
 function App() {

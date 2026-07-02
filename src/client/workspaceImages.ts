@@ -34,5 +34,5 @@ export function parseWorkspaceImageMarkdown(
 }
 
 export function workspaceImageUrl(cwd: string, path: string): string {
-  return `/api/files/image?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+  return `/api/files/image?${new URLSearchParams({ cwd, path })}`;
 }

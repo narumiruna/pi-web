@@ -20,11 +20,3 @@ export type StoredProject = {
   path: string;
   createdAt: string;
 };
-
-export type StoredMachine = {
-  id: string;
-  name: string;
-  url: string;
-  token?: string;
-  kind: "remote";
-};

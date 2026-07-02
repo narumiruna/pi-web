@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, watch } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AuthStorage,
@@ -16,8 +16,9 @@ import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { registerCompatRoutes } from "./compatRoutes.js";
+import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
-import { imageMimeFromPath, readWorkspaceImage } from "./workspaceImages.js";
+import { readWorkspaceImage } from "./workspaceImages.js";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type Json = Record<string, unknown>;
@@ -71,75 +72,47 @@ async function resolveSessionPath(id: string): Promise<string | undefined> {
 }
 
 function makeUiContext(webSession: WebSession): any {
-  return {
+  const send = (method: string, payload: Json = {}) =>
+    webSession.broadcast({ type: "extension_ui", method, ...payload });
+  const noop = () => {};
+  const uiContext = {
     select: async (_title: string, options: string[]) => options[0],
     confirm: async () => false,
     input: async () => undefined,
     editor: async () => undefined,
     notify: (message: string, notifyType = "info") =>
-      webSession.broadcast({
-        type: "extension_ui",
-        method: "notify",
-        message,
-        notifyType,
-      }),
-    setStatus: (key: string, text?: string) =>
-      webSession.broadcast({
-        type: "extension_ui",
-        method: "setStatus",
-        key,
-        text,
-      }),
+      send("notify", { message, notifyType }),
+    setStatus: (key: string, text?: string) => send("setStatus", { key, text }),
     setWidget: (
       key: string,
       lines?: string[],
       options?: { placement?: string },
-    ) =>
-      webSession.broadcast({
-        type: "extension_ui",
-        method: "setWidget",
-        key,
-        lines,
-        placement: options?.placement,
-      }),
-    setTitle: (title: string) =>
-      webSession.broadcast({ type: "extension_ui", method: "setTitle", title }),
-    setEditorText: (text: string) =>
-      webSession.broadcast({
-        type: "extension_ui",
-        method: "setEditorText",
-        text,
-      }),
-    pasteToEditor: (text: string) =>
-      webSession.broadcast({
-        type: "extension_ui",
-        method: "setEditorText",
-        text,
-      }),
+    ) => send("setWidget", { key, lines, placement: options?.placement }),
+    setTitle: (title: string) => send("setTitle", { title }),
+    setEditorText: (text: string) => send("setEditorText", { text }),
+    pasteToEditor: (text: string) => send("setEditorText", { text }),
     custom: async () => undefined,
-    onTerminalInput: () => () => {},
+    onTerminalInput: () => noop,
     getEditorText: () => "",
-    addAutocompleteProvider: () => {},
-    setWorkingMessage: () => {},
-    setWorkingVisible: () => {},
-    setWorkingIndicator: () => {},
-    setHiddenThinkingLabel: () => {},
-    setFooter: () => {},
-    setHeader: () => {},
-    setEditorComponent: () => {},
-    getEditorComponent: () => undefined,
     getAllThemes: () => [],
     getTheme: () => undefined,
+    getToolsExpanded: () => false,
     setTheme: () => ({
       success: false,
       error: "Theme switching is not available in pi-web.",
     }),
-    getToolsExpanded: () => false,
-    setToolsExpanded: () => {},
     get theme() {
       return undefined;
     },
   };
+  return new Proxy(uiContext, {
+    get(target, prop: string | symbol) {
+      if (prop in target) return target[prop as keyof typeof target];
+      if (typeof prop === "string" && prop.startsWith("get"))
+        return () => undefined;
+      return noop;
+    },
+  });
 }
 
 class WebSession {
@@ -345,32 +318,6 @@ function commandList(session: LiveSession) {
   return [...extensionCommands, ...prompts, ...skills].filter(
     (cmd) => cmd.name,
   );
-}
-
-function mimeFromPath(path: string): string {
-  const ext = extname(path).toLowerCase();
-  if ([".png"].includes(ext)) return "image/png";
-  if ([".jpg", ".jpeg"].includes(ext)) return "image/jpeg";
-  if ([".gif"].includes(ext)) return "image/gif";
-  if ([".webp"].includes(ext)) return "image/webp";
-  if ([".svg"].includes(ext)) return "image/svg+xml";
-  return "text/plain";
-}
-
-function isLikelyText(path: string): boolean {
-  const ext = extname(path).toLowerCase();
-  return ![
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".gif",
-    ".webp",
-    ".pdf",
-    ".zip",
-    ".gz",
-    ".tar",
-    ".wasm",
-  ].includes(ext);
 }
 
 const app = Fastify({
@@ -808,7 +755,7 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
         };
       }
       const mimeType = mimeFromPath(file);
-      if (!isLikelyText(file) || info.size > MAX_TEXT_FILE_BYTES) {
+      if (!isTextPath(file) || info.size > MAX_TEXT_FILE_BYTES) {
         return {
           path: relative(cwd, file),
           size: info.size,

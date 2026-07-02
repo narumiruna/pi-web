@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "./api";
 import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
 import { scopeLabel, sessionTitle, toolRiskLabel } from "./uiText";
 
@@ -29,19 +30,6 @@ type Card = {
   scope?: string;
   actions?: Array<{ label: string; onClick: () => void }>;
 };
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(init?.headers ?? {}),
-    },
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error ?? res.statusText);
-  return json as T;
-}
 
 const object = (value: DashboardValue) =>
   value && !Array.isArray(value) && typeof value === "object"

@@ -48,8 +48,7 @@ export function registerFileCompatRoutes(app: FastifyInstance, deps: Deps) {
       return reply.type(mimeFromPath(file)).send(await readFile(file));
     },
   );
-  for (const prefix of ["/api", "/api/machines/local"])
-    registerWorkspaceRoutes(app, deps, prefix);
+  registerWorkspaceRoutes(app, deps, "/api");
 }
 
 function registerWorkspaceRoutes(
@@ -202,48 +201,42 @@ function registerWorkspaceRoutes(
   );
 }
 
-export function registerProjectRoutes(
-  app: FastifyInstance,
-  deps: Deps,
-  listTerminals: (cwd: string) => unknown[],
-) {
-  for (const prefix of ["/api", "/api/machines/local"]) {
-    app.get(`${prefix}/projects`, async () => ({
-      projects: await listProjects(deps.defaultCwd),
-    }));
-    app.post<{ Body: { name?: string; path: string; create?: boolean } }>(
-      `${prefix}/projects`,
-      async (request, reply) => {
-        try {
-          return await addProject(request.body, deps.defaultCwd);
-        } catch (error) {
-          return reply.code(400).send({ error: errorMessage(error) });
-        }
-      },
-    );
-    app.delete<{ Params: { projectId: string } }>(
-      `${prefix}/projects/:projectId`,
-      async (request) => ({
-        closed: await removeProject(request.params.projectId),
-      }),
-    );
-    app.get<{ Querystring: { q?: string } }>(
-      `${prefix}/project-directories`,
-      async (request) => directorySuggestions(request.query.q ?? ""),
-    );
-    app.get<{ Params: { projectId: string } }>(
-      `${prefix}/projects/:projectId/workspaces`,
-      async (request) =>
-        workspacesFor(
-          await requireProject(request.params.projectId, deps.defaultCwd),
-        ),
-    );
-    app.get(`${prefix}/activity`, async () => ({
-      sessions: [],
-      terminals: listTerminals(deps.defaultCwd),
-      updatedAt: new Date().toISOString(),
-    }));
-  }
+export function registerProjectRoutes(app: FastifyInstance, deps: Deps) {
+  app.get("/api/projects", async () => ({
+    projects: await listProjects(deps.defaultCwd),
+  }));
+  app.post<{ Body: { name?: string; path: string; create?: boolean } }>(
+    "/api/projects",
+    async (request, reply) => {
+      try {
+        return await addProject(request.body, deps.defaultCwd);
+      } catch (error) {
+        return reply.code(400).send({ error: errorMessage(error) });
+      }
+    },
+  );
+  app.delete<{ Params: { projectId: string } }>(
+    "/api/projects/:projectId",
+    async (request) => ({
+      closed: await removeProject(request.params.projectId),
+    }),
+  );
+  app.get<{ Querystring: { q?: string } }>(
+    "/api/project-directories",
+    async (request) => directorySuggestions(request.query.q ?? ""),
+  );
+  app.get<{ Params: { projectId: string } }>(
+    "/api/projects/:projectId/workspaces",
+    async (request) =>
+      workspacesFor(
+        await requireProject(request.params.projectId, deps.defaultCwd),
+      ),
+  );
+  app.get("/api/activity", async () => ({
+    sessions: [],
+    terminals: [],
+    updatedAt: new Date().toISOString(),
+  }));
 }
 
 function absoluteFromWildcard(path: string) {

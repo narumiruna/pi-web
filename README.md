@@ -11,7 +11,7 @@ Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-
 - Use a web terminal tab backed by a persistent local shell.
 - Browse workspace files, read text files, preview images, and auto-refresh file changes.
 - Use the Control room tab for projects, workspaces, git status, machines, auth/API keys, model switching, tool toggles, model-invoked skill toggles, plugins, and pi packages.
-- Run in one Fastify process with a Vite/React client; compatibility routes cover the bundled `third_party` pi-web API surfaces.
+- Run in one Fastify process with a Vite/React client and a small compatibility layer for the routes this UI uses.
 
 ## Local development
 
