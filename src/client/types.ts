@@ -17,6 +17,7 @@ export type ModelInfo = {
 };
 
 export type ToolInfo = { name: string; description?: string; active: boolean };
+export type Theme = "system" | "dark" | "light";
 export type FileEntry = {
   name: string;
   path: string;

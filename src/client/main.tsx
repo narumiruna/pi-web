@@ -16,6 +16,7 @@ import type {
   FileEntry,
   ModelInfo,
   SessionInfo,
+  Theme,
   ToolInfo,
 } from "./types";
 import "./styles.css";
@@ -28,6 +29,7 @@ type SidebarLayout = {
 };
 
 const SIDEBAR_LAYOUT_STORAGE_KEY = "pi-web.sidebar-layout";
+const THEME_STORAGE_KEY = "pi-web.theme";
 const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
   sidebarWidth: 310,
   cwdHeight: 140,
@@ -69,6 +71,24 @@ function loadSidebarLayout(): SidebarLayout {
   } catch {
     return DEFAULT_SIDEBAR_LAYOUT;
   }
+}
+
+function loadTheme(): Theme {
+  const value = localStorage.getItem(THEME_STORAGE_KEY);
+  return value === "dark" || value === "light" ? value : "system";
+}
+
+function resolvedTheme(theme: Theme): Exclude<Theme, "system"> {
+  if (theme !== "system") return theme;
+  return window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
+}
+
+function applyTheme(theme: Theme) {
+  const next = resolvedTheme(theme);
+  document.documentElement.dataset.theme = next;
+  document.documentElement.style.colorScheme = next;
 }
 
 function formatRelativeTime(value: string): string {
@@ -131,6 +151,7 @@ function App() {
   const [commands, setCommands] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("chat");
+  const [theme, setThemeState] = useState<Theme>(() => loadTheme());
   const [sidebarLayout, setSidebarLayout] = useState<SidebarLayout>(() =>
     loadSidebarLayout(),
   );
@@ -142,6 +163,10 @@ function App() {
 
   const selectedId = selected?.id;
   const activeCwd = selected?.cwd || cwd || defaultCwd;
+  const setTheme = useCallback((next: Theme) => {
+    setThemeState(next);
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  }, []);
   const filteredSessions = useMemo(() => {
     const query = sessionFilter.trim().toLowerCase();
     if (!query) return sessions;
@@ -291,6 +316,15 @@ function App() {
       .catch((error) => setNotice(error.message));
     return () => eventsRef.current?.close();
   }, [loadSessions]);
+
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const sync = () => applyTheme(theme);
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, [theme]);
 
   useEffect(() => {
     if (!selected) return;
@@ -745,6 +779,8 @@ function App() {
             status={status}
             models={models}
             tools={tools}
+            theme={theme}
+            onTheme={setTheme}
             onModel={setModel}
             onTools={saveTools}
             onNotice={setNotice}

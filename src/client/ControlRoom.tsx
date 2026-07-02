@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ModelInfo, SessionInfo, ToolInfo } from "./types";
+import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
 
 type JsonObject = Record<string, unknown>;
 type DashboardValue =
@@ -14,7 +14,7 @@ type StatusSnapshot = {
   model?: { provider?: string; id?: string };
   isStreaming?: boolean;
 } | null;
-type Section = "session" | "git" | "model" | "tools" | "skills";
+type Section = "session" | "git" | "model" | "tools" | "skills" | "appearance";
 type Tone = "ok" | "warning" | "danger" | "muted";
 
 type Card = {
@@ -64,6 +64,17 @@ const providerConfigured = (provider: DashboardValue) =>
   boolField(field(provider, "auth"), "configured");
 const shortTime = (value?: string) =>
   value ? new Date(value).toLocaleString() : "unknown";
+const themeNames: Record<Theme, string> = {
+  system: "System",
+  dark: "Dark",
+  light: "Light",
+};
+const themeDetails: Record<Theme, string> = {
+  system: "Follow device setting",
+  dark: "High-contrast dark workspace",
+  light: "Bright workspace for daylight",
+};
+const themeOptions: Theme[] = ["system", "dark", "light"];
 
 export function ControlRoom({
   cwd,
@@ -71,6 +82,8 @@ export function ControlRoom({
   status,
   models,
   tools,
+  theme,
+  onTheme,
   onModel,
   onTools,
   onNotice,
@@ -81,6 +94,8 @@ export function ControlRoom({
   status: StatusSnapshot;
   models: ModelInfo[];
   tools: ToolInfo[];
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
   onModel: (value: string) => Promise<void>;
   onTools: (tools: string[]) => Promise<void>;
   onNotice: (message: string) => void;
@@ -334,6 +349,15 @@ export function ControlRoom({
       section: "skills",
     },
     {
+      key: "appearance",
+      title: "Appearance",
+      summary: themeNames[theme],
+      detail: themeDetails[theme],
+      value: { theme },
+      tone: "ok",
+      section: "appearance",
+    },
+    {
       key: "advanced",
       title: "Advanced",
       summary: `${projects.length} projects · ${machines.length} machines`,
@@ -358,6 +382,7 @@ export function ControlRoom({
     { key: "model", label: "Model & API Keys", meta: authSummary },
     { key: "tools", label: "Tools", meta: `${activeToolNames.length} enabled` },
     { key: "skills", label: "Skills", meta: `${enabledSkills.length} enabled` },
+    { key: "appearance", label: "Appearance", meta: themeNames[theme] },
   ];
 
   return (
@@ -761,6 +786,41 @@ export function ControlRoom({
                     No skills found for this workspace.
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {section === "appearance" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Appearance</div>
+                  <h2>{themeNames[theme]}</h2>
+                  <p>{themeDetails[theme]}</p>
+                </div>
+                <select
+                  value={theme}
+                  onChange={(event) => {
+                    const next = event.target.value as Theme;
+                    onTheme(next);
+                    onNotice(`Theme changed to ${themeNames[next]}`);
+                  }}
+                >
+                  {themeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {themeNames[option]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="summary-grid">
+                {themeOptions.map((option) => (
+                  <div key={option}>
+                    <span>{option === theme ? "Current" : "Theme"}</span>
+                    <strong>{themeNames[option]}</strong>
+                    <small>{themeDetails[option]}</small>
+                  </div>
+                ))}
               </div>
             </div>
           )}
