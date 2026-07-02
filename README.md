@@ -4,16 +4,18 @@ Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-
 
 ## Features
 
-- Browse saved Pi sessions from `~/.pi/agent/sessions`.
-- Start/resume sessions with streaming chat, abort, compact, steer/follow-up.
-- Switch model, thinking level, and active tools.
-- Use slash commands, prompt templates, skills, and image prompts.
-- Browse/read workspace files, including image previews.
-- Use a basic web terminal in a tab next to chat.
+- Chat with Pi sessions from the browser, including streaming replies, abort, compact, follow-up/steer, and image prompts.
+- Resume, rename, delete, export, fork, and inspect saved sessions from `~/.pi/agent/sessions`.
+- Switch model, thinking level, active tools, slash commands, prompt templates, and skills.
+- Paste images directly into the chat box with `Ctrl+V`, preview attachments, and send them with the prompt.
+- Use a web terminal tab backed by a persistent local shell.
+- Browse workspace files, read text files, preview images, and auto-refresh file changes.
+- Use the Control room tab for projects, workspaces, git status, machines, auth/API keys, models, skills, plugins, and pi packages.
+- Run in one Fastify process with a Vite/React client; compatibility routes cover the bundled `third_party` pi-web API surfaces.
 
 ## Local development
 
-Requirements: Node.js 22+ and an already configured Pi install/API key.
+Requirements: Node.js 22+, npm, and a configured Pi install/API key.
 
 ```bash
 npm install
@@ -31,30 +33,52 @@ npm start
 
 Open <http://127.0.0.1:30141>.
 
-## Docker
+CLI wrapper after build:
 
 ```bash
-docker compose up --build
+node dist/server/cli.js --cwd /path/to/project --port 30141
+```
+
+## Docker
+
+Production-like compose uses `compose.yml` and stores data under `./data`:
+
+```bash
+just up      # docker compose up -d --build --remove-orphans
+just down    # docker compose down --remove-orphans
+```
+
+Development compose uses `compose.dev.yml` and mounts this repo at `/workspace`:
+
+```bash
+just devup
+just devdown
 ```
 
 Open <http://127.0.0.1:30141>.
 
-The image installs `uv` and the latest uv-managed Python by default. Pin versions with build args:
+The image installs `uv`, Rust/Cargo, and the latest uv-managed Python by default. Pin versions with build args:
 
 ```bash
-UV_VERSION=0.11.26 PYTHON_VERSION=3.12 docker compose build
+UV_VERSION=0.11.26 PYTHON_VERSION=3.12 RUST_VERSION=1 docker compose build
 ```
 
-The compose file mounts:
+Compose sets `WORKSPACE_ROOT=/workspace` and mounts:
 
-- `~/.pi/agent:/home/node/.pi/agent` for Pi config/auth/sessions.
-- `${PI_WEB_WORKSPACE:-./workspace}:/workspace` as the editable workspace.
+- `./data/pi/agent:/home/node/.pi/agent` for Pi config/auth/sessions.
+- `./data/workspace:/workspace` in `compose.yml`.
+- `./:/workspace` in `compose.dev.yml`.
 
-Container sessions use `/workspace`; mount the host project you want Pi to edit there:
+## Configuration
 
-```bash
-PI_WEB_WORKSPACE=/path/to/project docker compose up --build
-```
+Useful environment variables:
+
+- `HOST` / `PORT`: server bind host and port.
+- `PI_WEB_CWD`: default workspace directory; falls back to `WORKSPACE_ROOT` then `process.cwd()`.
+- `PI_WEB_DATA_DIR`: project/machine/config storage directory; defaults to `~/.pi-web`.
+- `PI_WEB_CONFIG`: config JSON path override.
+- `PI_WEB_SHELL`: shell used by web terminals; defaults to `/bin/sh`.
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`: provider keys for container/runtime use.
 
 ## Checks
 
@@ -63,7 +87,3 @@ npm run typecheck
 npm run build
 npm test
 ```
-
-## Scope
-
-This is intentionally small: one Fastify process, Vite/React client, no auth, no remote machine fleet, no plugins, no separate session daemon.
