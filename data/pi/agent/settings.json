@@ -4,7 +4,6 @@
   "defaultModel": "gpt-5.5",
   "packages": [
     "npm:@narumitw/pi-btw",
-    "npm:@narumitw/pi-caffeinate",
     "npm:@narumitw/pi-chrome-devtools",
     "npm:@narumitw/pi-codex-usage",
     "npm:@narumitw/pi-goal",
