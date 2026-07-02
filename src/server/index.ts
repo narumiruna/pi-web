@@ -564,6 +564,7 @@ app.get<{ Params: { id: string } }>(
         tools: session.inner.getAllTools().map((tool) => ({
           name: tool.name,
           description: tool.description,
+          sourceInfo: tool.sourceInfo,
           active: active.has(tool.name),
         })),
       };

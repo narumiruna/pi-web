@@ -1,15 +1,10 @@
 // biome-ignore-all lint: Pi SDK/websocket wire data is dynamic in this MVP.
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
 import { FilePane } from "./FilePane";
+import { Sidebar } from "./Sidebar";
 import { TerminalPane } from "./TerminalPane";
 import type {
   AttachedImage,
@@ -19,59 +14,13 @@ import type {
   Theme,
   ToolInfo,
 } from "./types";
+import { noticeTone, sessionTitle } from "./uiText";
 import "./styles.css";
+import "./uiux.css";
 
 type Tab = "chat" | "terminal" | "file" | "settings";
-type SidebarLayout = {
-  sidebarWidth: number;
-  cwdHeight: number;
-  sessionsHeight: number;
-};
 
-const SIDEBAR_LAYOUT_STORAGE_KEY = "pi-web.sidebar-layout";
 const THEME_STORAGE_KEY = "pi-web.theme";
-const DEFAULT_SIDEBAR_LAYOUT: SidebarLayout = {
-  sidebarWidth: 310,
-  cwdHeight: 140,
-  sessionsHeight: 280,
-};
-const SIDEBAR_MIN_WIDTH = 240;
-const SIDEBAR_MAX_WIDTH = 620;
-const CWD_MIN_HEIGHT = 132;
-const CWD_MAX_HEIGHT = 260;
-const SIDEBAR_PANEL_MIN_HEIGHT = 140;
-
-function clamp(value: number, min: number, max: number): number {
-  const safeMax = Math.max(min, max);
-  return Math.min(Math.max(value, min), safeMax);
-}
-
-function loadSidebarLayout(): SidebarLayout {
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(SIDEBAR_LAYOUT_STORAGE_KEY) ?? "{}",
-    );
-    return {
-      sidebarWidth: clamp(
-        Number(parsed.sidebarWidth) || DEFAULT_SIDEBAR_LAYOUT.sidebarWidth,
-        SIDEBAR_MIN_WIDTH,
-        SIDEBAR_MAX_WIDTH,
-      ),
-      cwdHeight: clamp(
-        Number(parsed.cwdHeight) || DEFAULT_SIDEBAR_LAYOUT.cwdHeight,
-        CWD_MIN_HEIGHT,
-        CWD_MAX_HEIGHT,
-      ),
-      sessionsHeight: clamp(
-        Number(parsed.sessionsHeight) || DEFAULT_SIDEBAR_LAYOUT.sessionsHeight,
-        SIDEBAR_PANEL_MIN_HEIGHT,
-        720,
-      ),
-    };
-  } catch {
-    return DEFAULT_SIDEBAR_LAYOUT;
-  }
-}
 
 function loadTheme(): Theme {
   const value = localStorage.getItem(THEME_STORAGE_KEY);
@@ -91,45 +40,6 @@ function applyTheme(theme: Theme) {
   document.documentElement.style.colorScheme = next;
 }
 
-function formatRelativeTime(value: string): string {
-  const time = new Date(value).getTime();
-  if (Number.isNaN(time)) return "unknown";
-  const diffSeconds = Math.round((time - Date.now()) / 1000);
-  const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-    ["year", 60 * 60 * 24 * 365],
-    ["month", 60 * 60 * 24 * 30],
-    ["week", 60 * 60 * 24 * 7],
-    ["day", 60 * 60 * 24],
-    ["hour", 60 * 60],
-    ["minute", 60],
-  ];
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  for (const [unit, seconds] of ranges) {
-    if (Math.abs(diffSeconds) >= seconds) {
-      return formatter.format(Math.round(diffSeconds / seconds), unit);
-    }
-  }
-  return "just now";
-}
-
-function noticeTone(message: string): "warning" | "danger" | "ok" | "info" {
-  const text = message.toLowerCase();
-  if (text.includes("rejected") || text.includes("warning")) return "warning";
-  if (text.includes("error") || text.includes("failed")) return "danger";
-  if (
-    text.includes("saved") ||
-    text.includes("updated") ||
-    text.includes("copied") ||
-    text.includes("deleted")
-  )
-    return "ok";
-  return "info";
-}
-
-function sessionTitle(session: SessionInfo): string {
-  return session.name || session.firstMessage || "Untitled";
-}
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -147,7 +57,6 @@ function App() {
   const [defaultCwd, setDefaultCwd] = useState<string>("");
   const [cwd, setCwd] = useState<string>("");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [sessionFilter, setSessionFilter] = useState("");
   const [selected, setSelected] = useState<SessionInfo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionInfo | null>(null);
   const [deletingSessionId, setDeletingSessionId] = useState("");
@@ -162,13 +71,9 @@ function App() {
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("chat");
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
-  const [sidebarLayout, setSidebarLayout] = useState<SidebarLayout>(() =>
-    loadSidebarLayout(),
-  );
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
   const [file, setFile] = useState<any>(null);
-  const sidebarRef = useRef<HTMLElement | null>(null);
   const eventsRef = useRef<EventSource | null>(null);
 
   const selectedId = selected?.id;
@@ -177,16 +82,6 @@ function App() {
     setThemeState(next);
     localStorage.setItem(THEME_STORAGE_KEY, next);
   }, []);
-  const filteredSessions = useMemo(() => {
-    const query = sessionFilter.trim().toLowerCase();
-    if (!query) return sessions;
-    return sessions.filter((session) =>
-      [session.name, session.firstMessage, session.cwd]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }, [sessions, sessionFilter]);
-
   const loadSessions = useCallback(async () => {
     const data = await api<{ sessions: SessionInfo[] }>("/api/sessions");
     setSessions(data.sessions);
@@ -383,93 +278,6 @@ function App() {
     return () => events.close();
   }, [activeCwd, filePath, loadFiles]);
 
-  useEffect(() => {
-    localStorage.setItem(
-      SIDEBAR_LAYOUT_STORAGE_KEY,
-      JSON.stringify(sidebarLayout),
-    );
-  }, [sidebarLayout]);
-
-  function availableSidebarPaneHeight() {
-    return Math.max(
-      SIDEBAR_PANEL_MIN_HEIGHT * 2 + CWD_MIN_HEIGHT,
-      (sidebarRef.current?.clientHeight ?? window.innerHeight) - 86,
-    );
-  }
-
-  function startSidebarWidthResize(event: React.PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = sidebarLayout.sidebarWidth;
-    document.body.classList.add("resizing");
-    const onMove = (moveEvent: PointerEvent) => {
-      setSidebarLayout((value) => ({
-        ...value,
-        sidebarWidth: clamp(
-          startWidth + moveEvent.clientX - startX,
-          SIDEBAR_MIN_WIDTH,
-          SIDEBAR_MAX_WIDTH,
-        ),
-      }));
-    };
-    const onEnd = () => {
-      document.body.classList.remove("resizing");
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onEnd);
-      window.removeEventListener("pointercancel", onEnd);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onEnd);
-    window.addEventListener("pointercancel", onEnd);
-  }
-
-  function startPaneResize(
-    pane: "cwd" | "sessions",
-    event: React.PointerEvent<HTMLDivElement>,
-  ) {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startCwdHeight = sidebarLayout.cwdHeight;
-    const startSessionsHeight = sidebarLayout.sessionsHeight;
-    document.body.classList.add("resizing");
-    const onMove = (moveEvent: PointerEvent) => {
-      const delta = moveEvent.clientY - startY;
-      const available = availableSidebarPaneHeight();
-      setSidebarLayout((value) => {
-        if (pane === "cwd") {
-          const cwdHeight = clamp(
-            startCwdHeight + delta,
-            CWD_MIN_HEIGHT,
-            Math.min(CWD_MAX_HEIGHT, available - SIDEBAR_PANEL_MIN_HEIGHT * 2),
-          );
-          const sessionsHeight = clamp(
-            value.sessionsHeight,
-            SIDEBAR_PANEL_MIN_HEIGHT,
-            available - cwdHeight - SIDEBAR_PANEL_MIN_HEIGHT,
-          );
-          return { ...value, cwdHeight, sessionsHeight };
-        }
-        return {
-          ...value,
-          sessionsHeight: clamp(
-            startSessionsHeight + delta,
-            SIDEBAR_PANEL_MIN_HEIGHT,
-            available - value.cwdHeight - SIDEBAR_PANEL_MIN_HEIGHT,
-          ),
-        };
-      });
-    };
-    const onEnd = () => {
-      document.body.classList.remove("resizing");
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onEnd);
-      window.removeEventListener("pointercancel", onEnd);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onEnd);
-    window.addEventListener("pointercancel", onEnd);
-  }
-
   async function newSession() {
     const data = await api<{ session: SessionInfo; status: any }>(
       "/api/sessions",
@@ -607,155 +415,20 @@ function App() {
   }
 
   return (
-    <div
-      className="app"
-      style={
-        {
-          "--sidebar-width": `${sidebarLayout.sidebarWidth}px`,
-        } as React.CSSProperties
-      }
-    >
-      <aside
-        ref={sidebarRef}
-        className="sidebar"
-        style={
-          {
-            "--cwd-panel-height": `${sidebarLayout.cwdHeight}px`,
-            "--sessions-panel-height": `${sidebarLayout.sessionsHeight}px`,
-          } as React.CSSProperties
-        }
-      >
-        <div className="sidebar-header">
-          <div className="brand">π web</div>
-          <button
-            type="button"
-            className="layout-reset"
-            title="Restore default sidebar sizes"
-            onClick={() => setSidebarLayout(DEFAULT_SIDEBAR_LAYOUT)}
-          >
-            Reset layout
-          </button>
-        </div>
-        <section className="panel cwd-panel">
-          <div className="panel-title">cwd</div>
-          <input
-            className="input"
-            value={cwd}
-            onChange={(event) => setCwd(event.target.value)}
-          />
-          <button className="primary" onClick={() => void newSession()}>
-            New session
-          </button>
-        </section>
-        <div
-          className="pane-resizer"
-          role="separator"
-          aria-label="Resize CWD and sessions panels"
-          aria-orientation="horizontal"
-          onPointerDown={(event) => startPaneResize("cwd", event)}
-        />
-        <section className="panel sessions-panel">
-          <div className="panel-title">
-            Sessions
-            <span>
-              {filteredSessions.length}/{sessions.length}
-            </span>
-          </div>
-          <input
-            className="input sidebar-search"
-            value={sessionFilter}
-            onChange={(event) => setSessionFilter(event.target.value)}
-            placeholder="Search sessions"
-          />
-          <div className="session-list">
-            {filteredSessions.map((session) => {
-              const title = sessionTitle(session);
-              const deleting = deletingSessionId === session.id;
-              const active = selected?.id === session.id;
-              return (
-                <div
-                  key={session.id}
-                  className={`session-row ${active ? "active" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className={`session ${active ? "active" : ""}`}
-                    disabled={deleting}
-                    onClick={() => setSelected(session)}
-                  >
-                    <span className="session-heading">
-                      <span>{title}</span>
-                      {active && <em>active</em>}
-                    </span>
-                    <small>{session.cwd}</small>
-                    <span className="session-meta">
-                      <span>{formatRelativeTime(session.modified)}</span>
-                      <span>{session.messageCount} msgs</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="session-delete"
-                    aria-label={`Delete ${title}`}
-                    title="Delete session"
-                    disabled={deleting}
-                    onClick={(event) => requestSessionDelete(session, event)}
-                  >
-                    {deleting ? "…" : "×"}
-                  </button>
-                </div>
-              );
-            })}
-            {filteredSessions.length === 0 && (
-              <div className="empty-small">No matching sessions.</div>
-            )}
-          </div>
-        </section>
-        <div
-          className="pane-resizer"
-          role="separator"
-          aria-label="Resize sessions and files panels"
-          aria-orientation="horizontal"
-          onPointerDown={(event) => startPaneResize("sessions", event)}
-        />
-        <section className="panel files">
-          <div className="panel-title">
-            <span>Files</span>
-            <span className="auto-refresh">auto</span>
-            {filePath && (
-              <button
-                className="link"
-                onClick={() =>
-                  setFilePath(filePath.split("/").slice(0, -1).join("/"))
-                }
-              >
-                up
-              </button>
-            )}
-          </div>
-          <div className="file-path" title={filePath || "."}>
-            {filePath || "."}
-          </div>
-          <div className="file-list">
-            {files.map((entry) => (
-              <button
-                key={entry.path}
-                className="file-row"
-                onClick={() => void openFile(entry)}
-              >
-                <span>{entry.type === "directory" ? "▸" : "•"}</span>{" "}
-                {entry.name}
-              </button>
-            ))}
-          </div>
-        </section>
-      </aside>
-      <div
-        className="sidebar-width-resizer"
-        role="separator"
-        aria-label="Resize sidebar"
-        aria-orientation="vertical"
-        onPointerDown={startSidebarWidthResize}
+    <div className="app">
+      <Sidebar
+        cwd={cwd}
+        sessions={sessions}
+        selected={selected}
+        deletingSessionId={deletingSessionId}
+        files={files}
+        filePath={filePath}
+        onCwd={setCwd}
+        onNewSession={() => void newSession()}
+        onSelectSession={setSelected}
+        onDeleteSession={requestSessionDelete}
+        onFilePath={setFilePath}
+        onOpenFile={(entry) => void openFile(entry)}
       />
 
       <main className="main">
@@ -812,6 +485,9 @@ function App() {
             streamText={streamText}
             streamThinking={streamThinking}
             running={running}
+            hasSession={Boolean(selected)}
+            cwd={activeCwd}
+            onOpenTerminal={() => setTab("terminal")}
             onSend={sendPrompt}
             onAbort={async () =>
               selectedId &&

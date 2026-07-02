@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
+import { scopeLabel, sessionTitle, toolRiskLabel } from "./uiText";
 
 type JsonObject = Record<string, unknown>;
 type DashboardValue =
@@ -25,6 +26,7 @@ type Card = {
   value: DashboardValue;
   tone?: Tone;
   section?: Section;
+  scope?: string;
   actions?: Array<{ label: string; onClick: () => void }>;
 };
 
@@ -285,8 +287,9 @@ export function ControlRoom({
   const enabledSkills = skills.filter(
     (skill) => !boolField(skill as DashboardValue, "disableModelInvocation"),
   );
-  const selectedTitle =
-    selected?.name || selected?.firstMessage || "No session selected";
+  const selectedTitle = selected
+    ? sessionTitle(selected)
+    : "No session selected";
 
   const cards: Card[] = [
     {
@@ -297,6 +300,7 @@ export function ControlRoom({
       value: runtime,
       tone: boolField(runtime, "ok") ? "ok" : "warning",
       section: "session",
+      scope: "Runtime",
     },
     {
       key: "sessions",
@@ -308,6 +312,7 @@ export function ControlRoom({
       value: selected,
       tone: selected ? "ok" : "warning",
       section: "session",
+      scope: "Session",
     },
     {
       key: "git",
@@ -317,6 +322,7 @@ export function ControlRoom({
       value: data.git,
       tone: gitTone,
       section: "git",
+      scope: "Workspace",
       actions: [{ label: "Refresh", onClick: () => void refresh() }],
     },
     {
@@ -327,6 +333,7 @@ export function ControlRoom({
       value: { model: status?.model, auth: data.auth },
       tone: auth.some(providerConfigured) ? "ok" : "warning",
       section: "model",
+      scope: "Session model · Global keys",
     },
     {
       key: "tools",
@@ -336,6 +343,7 @@ export function ControlRoom({
       value: tools,
       tone: selected ? "ok" : "muted",
       section: "tools",
+      scope: "Session",
     },
     {
       key: "skills",
@@ -345,6 +353,7 @@ export function ControlRoom({
       value: data.skills,
       tone: skills.length ? "ok" : "muted",
       section: "skills",
+      scope: "Workspace",
     },
     {
       key: "appearance",
@@ -354,6 +363,7 @@ export function ControlRoom({
       value: { theme },
       tone: "ok",
       section: "appearance",
+      scope: "This browser",
     },
     {
       key: "advanced",
@@ -362,6 +372,7 @@ export function ControlRoom({
       detail: `${plugins.length} plugins · ${packages.length} packages`,
       value: { projects, machines, plugins, packages },
       tone: "muted",
+      scope: "Runtime",
     },
   ];
 
@@ -415,6 +426,11 @@ export function ControlRoom({
             </div>
             <strong>{card.summary}</strong>
             <p>{card.detail}</p>
+            {card.scope && (
+              <div className="metric-scope">
+                <span className="scope-badge">Applies to: {card.scope}</span>
+              </div>
+            )}
             <div className="card-actions">
               {card.section && (
                 <button
@@ -462,7 +478,10 @@ export function ControlRoom({
               <div className="section-head">
                 <div>
                   <div className="panel-title">Session</div>
-                  <h2>{selectedTitle}</h2>
+                  <h2>
+                    {selectedTitle}
+                    <span className="scope-badge">Applies to: Session</span>
+                  </h2>
                   <p>
                     {selected
                       ? `${selected.cwd} · ${selected.messageCount} messages · modified ${shortTime(selected.modified)}`
@@ -528,7 +547,10 @@ export function ControlRoom({
               <div className="section-head">
                 <div>
                   <div className="panel-title">Git status</div>
-                  <h2>{gitSummary}</h2>
+                  <h2>
+                    {gitSummary}
+                    <span className="scope-badge">Applies to: Workspace</span>
+                  </h2>
                   <p>{gitDetail}</p>
                 </div>
                 <div className="hero-actions">
@@ -573,11 +595,15 @@ export function ControlRoom({
               <div className="section-head">
                 <div>
                   <div className="panel-title">Model & API Keys</div>
-                  <h2>{model}</h2>
+                  <h2>
+                    {model}
+                    <span className="scope-badge">Model: Session</span>
+                    <span className="scope-badge">API keys: Global</span>
+                  </h2>
                   <p>
                     {selected
-                      ? "Model changes apply to the selected session."
-                      : "Select a session to switch models."}
+                      ? "Model changes apply to the selected session; API keys are saved globally for this pi-web runtime."
+                      : "Select a session to switch models. API keys are saved globally for this pi-web runtime."}
                   </p>
                 </div>
                 <select
@@ -680,9 +706,13 @@ export function ControlRoom({
               <div className="section-head">
                 <div>
                   <div className="panel-title">Tools</div>
-                  <h2>{activeToolNames.length} enabled</h2>
+                  <h2>
+                    {activeToolNames.length} enabled
+                    <span className="scope-badge">Applies to: Session</span>
+                  </h2>
                   <p>
-                    Keep this list compact; hover rows for full descriptions.
+                    Toggle the selected session's tool access. Rows show source
+                    scope and conservative risk labels.
                   </p>
                 </div>
                 <div className="hero-actions">
@@ -707,9 +737,10 @@ export function ControlRoom({
               <div className="compact-list">
                 {tools.map((tool) => {
                   const active = activeToolNames.includes(tool.name);
+                  const risk = toolRiskLabel(tool.name);
                   return (
                     <label
-                      className="compact-row"
+                      className="compact-row tool-row"
                       key={tool.name}
                       title={tool.description}
                     >
@@ -725,7 +756,22 @@ export function ControlRoom({
                         }}
                       />
                       <strong>{tool.name}</strong>
-                      <span>{tool.description || "No description"}</span>
+                      <span>
+                        <span className="tool-description">
+                          {tool.description || "No description"}
+                        </span>
+                        <span className="tool-labels">
+                          <span
+                            className={`state-badge ${active ? "ok" : "muted"}`}
+                          >
+                            {active ? "enabled" : "disabled"}
+                          </span>
+                          <span className="scope-badge">
+                            {scopeLabel(tool.sourceInfo?.scope)} scope
+                          </span>
+                          {risk && <span className="risk-badge">{risk}</span>}
+                        </span>
+                      </span>
                     </label>
                   );
                 })}
@@ -743,7 +789,10 @@ export function ControlRoom({
               <div className="section-head">
                 <div>
                   <div className="panel-title">Skills</div>
-                  <h2>{enabledSkills.length} model-enabled</h2>
+                  <h2>
+                    {enabledSkills.length} model-enabled
+                    <span className="scope-badge">Applies to: Workspace</span>
+                  </h2>
                   <p>
                     Disable model invocation without removing slash-command
                     access.
@@ -772,9 +821,25 @@ export function ControlRoom({
                       />
                       <strong>{name}</strong>
                       <span>
-                        {enabled
-                          ? "Model can invoke automatically"
-                          : "Hidden from model"}
+                        <span>
+                          {enabled
+                            ? "Model can invoke automatically"
+                            : "Hidden from model"}
+                        </span>
+                        <span className="tool-labels">
+                          <span
+                            className={`state-badge ${enabled ? "ok" : "muted"}`}
+                          >
+                            {enabled ? "model-enabled" : "slash only"}
+                          </span>
+                          <span className="scope-badge">
+                            {scopeLabel(
+                              textField(field(value, "sourceInfo"), "scope") ??
+                                "workspace",
+                            )}{" "}
+                            scope
+                          </span>
+                        </span>
                       </span>
                     </label>
                   );
@@ -793,7 +858,12 @@ export function ControlRoom({
               <div className="section-head">
                 <div>
                   <div className="panel-title">Appearance</div>
-                  <h2>{themeNames[theme]}</h2>
+                  <h2>
+                    {themeNames[theme]}
+                    <span className="scope-badge">
+                      Applies to: This browser
+                    </span>
+                  </h2>
                   <p>{themeDetails[theme]}</p>
                 </div>
                 <select

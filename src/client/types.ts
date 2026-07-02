@@ -16,7 +16,18 @@ export type ModelInfo = {
   contextWindow?: number;
 };
 
-export type ToolInfo = { name: string; description?: string; active: boolean };
+export type SourceInfo = {
+  path?: string;
+  source?: string;
+  scope?: string;
+  origin?: string;
+};
+export type ToolInfo = {
+  name: string;
+  description?: string;
+  active: boolean;
+  sourceInfo?: SourceInfo;
+};
 export type Theme = "system" | "dark" | "light";
 export type FileEntry = {
   name: string;

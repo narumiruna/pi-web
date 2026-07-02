@@ -1,0 +1,167 @@
+.app {
+  grid-template-columns: auto 8px minmax(0, 1fr);
+}
+.sidebar {
+  width: var(--sidebar-width, 310px);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+.workspace-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.workspace-input {
+  min-width: 0;
+}
+.sidebar-tab-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0;
+}
+.sidebar-tab-buttons button {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sidebar-tab-buttons button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--active) 55%, var(--panel));
+}
+.sidebar-width-resizer {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.sidebar-tab-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+.empty-state {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+.empty-card {
+  width: min(720px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 24px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.18);
+}
+.empty-card h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(24px, 4vw, 38px);
+  letter-spacing: -0.04em;
+}
+.empty-card p {
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quick-actions button {
+  text-align: left;
+}
+.tools-list label,
+.compact-row.tool-row {
+  align-items: flex-start;
+}
+.tool-labels,
+.scope-row,
+.message-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.tool-description {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+}
+.risk-badge,
+.scope-badge,
+.state-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.risk-badge {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  color: var(--warning);
+}
+.scope-badge {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+.state-badge.ok {
+  border-color: color-mix(in srgb, var(--success) 55%, var(--border));
+  color: var(--success);
+}
+.state-badge.muted {
+  color: var(--muted);
+}
+.metric-scope {
+  margin-top: 8px;
+}
+.reasoning-summary,
+.tool-card,
+.next-step {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+}
+.reasoning-summary summary,
+.tool-card-title {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.message.toolResult.warning,
+.message.toolResult.danger {
+  border-style: solid;
+  color: var(--text);
+}
+.message.toolResult.warning {
+  border-color: color-mix(in srgb, var(--warning) 70%, var(--border));
+  background: color-mix(in srgb, var(--warning) 10%, var(--panel));
+}
+.message.toolResult.danger {
+  border-color: color-mix(in srgb, var(--danger) 70%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+}
+.tool-card.call {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.tool-card.result.warning,
+.next-step {
+  border-color: color-mix(in srgb, var(--warning) 60%, var(--border));
+}
+.tool-card.result.danger {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
+}
+.next-step {
+  color: var(--warning);
+  margin-top: 8px;
+}
+.section-head h2 {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
