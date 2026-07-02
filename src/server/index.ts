@@ -17,6 +17,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
 import { registerCompatRoutes } from "./compatRoutes.js";
 import { resolveInside } from "./pathSafety.js";
+import { imageMimeFromPath, readWorkspaceImage } from "./workspaceImages.js";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type Json = Record<string, unknown>;
@@ -774,6 +775,19 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
 );
 
 app.get<{ Querystring: { cwd?: string; path?: string } }>(
+  "/api/files/image",
+  async (request, reply) => {
+    try {
+      const cwd = resolve(request.query.cwd || DEFAULT_CWD);
+      const image = await readWorkspaceImage(cwd, request.query.path || ".");
+      return reply.type(image.mimeType).send(image.data);
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  },
+);
+
+app.get<{ Querystring: { cwd?: string; path?: string } }>(
   "/api/files/content",
   async (request, reply) => {
     try {
@@ -781,9 +795,20 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
       const file = resolveInside(cwd, request.query.path || ".");
       const info = await stat(file);
       if (!info.isFile()) return reply.code(400).send({ error: "Not a file" });
+      const imageMimeType = imageMimeFromPath(file);
+      if (imageMimeType) {
+        const image = await readWorkspaceImage(cwd, request.query.path || ".");
+        return {
+          path: image.path,
+          size: image.size,
+          binary: false,
+          image: true,
+          mimeType: image.mimeType,
+          content: image.data.toString("base64"),
+        };
+      }
       const mimeType = mimeFromPath(file);
-      const image = mimeType.startsWith("image/");
-      if (!image && (!isLikelyText(file) || info.size > MAX_TEXT_FILE_BYTES)) {
+      if (!isLikelyText(file) || info.size > MAX_TEXT_FILE_BYTES) {
         return {
           path: relative(cwd, file),
           size: info.size,
@@ -797,9 +822,9 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
         path: relative(cwd, file),
         size: info.size,
         binary: false,
-        image,
+        image: false,
         mimeType,
-        content: image ? buffer.toString("base64") : buffer.toString("utf8"),
+        content: buffer.toString("utf8"),
       };
     } catch (error) {
       return reply.code(400).send(jsonError(error));

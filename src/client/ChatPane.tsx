@@ -3,6 +3,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getPastedImageFiles } from "./clipboardImages";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
 import { nextStepFor, noticeTone, scopeLabel, toolRiskLabel } from "./uiText";
+import {
+  parseWorkspaceImageMarkdown,
+  workspaceImageUrl,
+} from "./workspaceImages";
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
@@ -72,83 +76,93 @@ export function ChatPane(props: {
   return (
     <div className="chat-tab">
       <div className="controls">
-        <select
-          value={
-            props.status?.model
-              ? `${props.status.model.provider}/${props.status.model.id}`
-              : ""
-          }
-          onChange={(event) => void props.onModel(event.target.value)}
-        >
-          <option value="">auto model</option>
-          {props.models.map((model) => (
-            <option
-              key={`${model.provider}/${model.id}`}
-              value={`${model.provider}/${model.id}`}
-            >
-              {model.name || model.id} · {model.provider}
-            </option>
-          ))}
-        </select>
-        <select
-          value={props.status?.thinkingLevel || "off"}
-          onChange={(event) => void props.onThinking(event.target.value)}
-        >
-          {THINKING.map((level) => (
-            <option key={level}>{level}</option>
-          ))}
-        </select>
-        <button onClick={() => void props.onCompact()}>Compact</button>
-        {props.running && (
-          <button className="danger" onClick={() => void props.onAbort()}>
-            Abort
-          </button>
-        )}
-        <details className="tools-menu">
-          <summary>
-            Tools ({activeToolNames.length}/{props.tools.length})
-          </summary>
-          <div className="tools-list">
-            {props.tools.map((tool) => {
-              const active = activeToolNames.includes(tool.name);
-              const risk = toolRiskLabel(tool.name);
-              return (
-                <label key={tool.name} title={tool.description}>
-                  <input
-                    type="checkbox"
-                    checked={active}
-                    onChange={(event) => {
-                      const next = new Set(activeToolNames);
-                      if (event.target.checked) next.add(tool.name);
-                      else next.delete(tool.name);
-                      void props.onTools([...next]);
-                    }}
-                  />
-                  <span>
-                    <strong>{tool.name}</strong>
-                    <span className="tool-description">
-                      {tool.description || "No description"}
-                    </span>
-                    <span className="tool-labels">
-                      <span
-                        className={`state-badge ${active ? "ok" : "muted"}`}
-                      >
-                        {active ? "enabled" : "disabled"}
+        <div className="control-group model-controls">
+          <select
+            aria-label="Model"
+            value={
+              props.status?.model
+                ? `${props.status.model.provider}/${props.status.model.id}`
+                : ""
+            }
+            onChange={(event) => void props.onModel(event.target.value)}
+          >
+            <option value="">auto model</option>
+            {props.models.map((model) => (
+              <option
+                key={`${model.provider}/${model.id}`}
+                value={`${model.provider}/${model.id}`}
+              >
+                {model.name || model.id} · {model.provider}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Reasoning"
+            value={props.status?.thinkingLevel || "off"}
+            onChange={(event) => void props.onThinking(event.target.value)}
+          >
+            {THINKING.map((level) => (
+              <option key={level}>{level}</option>
+            ))}
+          </select>
+        </div>
+        <div className="control-group action-controls">
+          <button onClick={() => void props.onCompact()}>Compact</button>
+          {props.running && (
+            <button className="danger" onClick={() => void props.onAbort()}>
+              Abort
+            </button>
+          )}
+          <details className="tools-menu">
+            <summary>
+              Tools ({activeToolNames.length}/{props.tools.length})
+            </summary>
+            <div className="tools-list">
+              {props.tools.map((tool) => {
+                const active = activeToolNames.includes(tool.name);
+                const risk = toolRiskLabel(tool.name);
+                return (
+                  <label key={tool.name} title={tool.description}>
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={(event) => {
+                        const next = new Set(activeToolNames);
+                        if (event.target.checked) next.add(tool.name);
+                        else next.delete(tool.name);
+                        void props.onTools([...next]);
+                      }}
+                    />
+                    <span>
+                      <strong>{tool.name}</strong>
+                      <span className="tool-description">
+                        {tool.description || "No description"}
                       </span>
-                      <span className="scope-badge">
-                        {scopeLabel(tool.sourceInfo?.scope)} scope
+                      <span className="tool-labels">
+                        <span
+                          className={`state-badge ${active ? "ok" : "muted"}`}
+                        >
+                          {active ? "enabled" : "disabled"}
+                        </span>
+                        <span className="scope-badge">
+                          {scopeLabel(tool.sourceInfo?.scope)} scope
+                        </span>
+                        {risk && <span className="risk-badge">{risk}</span>}
                       </span>
-                      {risk && <span className="risk-badge">{risk}</span>}
                     </span>
-                  </span>
-                </label>
-              );
-            })}
-            {props.tools.length === 0 && (
-              <small>Select a session to load session-scoped tools.</small>
-            )}
-          </div>
-        </details>
+                  </label>
+                );
+              })}
+              {props.tools.length === 0 && (
+                <small>Select a session to load session-scoped tools.</small>
+              )}
+            </div>
+          </details>
+        </div>
+        <div className="control-group run-status" aria-live="polite">
+          <span className={`status-dot ${props.running ? "ok" : "muted"}`} />
+          {props.running ? "Running" : "Idle"}
+        </div>
       </div>
       {empty ? (
         <EmptyState
@@ -161,17 +175,17 @@ export function ChatPane(props: {
       ) : (
         <div className="messages">
           {props.messages.map((message, index) => (
-            <Message key={index} message={message} />
+            <Message key={index} message={message} cwd={props.cwd} />
           ))}
           {(props.streamThinking || props.streamText) && (
             <div className="message assistant streaming">
               {props.streamThinking && (
                 <details className="reasoning-summary">
                   <summary>Reasoning summary</summary>
-                  <pre>{props.streamThinking}</pre>
+                  <WorkspaceText text={props.streamThinking} cwd={props.cwd} />
                 </details>
               )}
-              <pre>{props.streamText}</pre>
+              <WorkspaceText text={props.streamText} cwd={props.cwd} />
             </div>
           )}
           <div ref={endRef} />
@@ -248,7 +262,7 @@ function EmptyState({
   );
 }
 
-function Message({ message }: { message: any }) {
+function Message({ message, cwd }: { message: any; cwd: string }) {
   const role = message.role ?? "event";
   const text = textFromContent(message.content);
   const tone = message.isError ? "danger" : noticeTone(text);
@@ -274,29 +288,50 @@ function Message({ message }: { message: any }) {
           <div className="tool-card-title">
             {message.isError ? "Error" : "Result"}
           </div>
-          <pre>{text}</pre>
+          <WorkspaceText text={text} cwd={cwd} />
         </div>
       ) : (
-        <MessageContent content={message.content} />
+        <MessageContent content={message.content} cwd={cwd} />
       )}
       {nextStep && <div className="next-step">{nextStep}</div>}
     </div>
   );
 }
 
-function MessageContent({ content }: { content: any }) {
-  if (typeof content === "string") return <pre>{content}</pre>;
+function WorkspaceText({ text, cwd }: { text: string; cwd: string }) {
+  return (
+    <>
+      {parseWorkspaceImageMarkdown(text).map((part, index) =>
+        part.type === "workspaceImage" ? (
+          <img
+            key={index}
+            className="inline-image workspace-image"
+            src={workspaceImageUrl(cwd, part.path)}
+            alt={part.alt}
+            loading="lazy"
+          />
+        ) : part.text ? (
+          <pre key={index}>{part.text}</pre>
+        ) : null,
+      )}
+    </>
+  );
+}
+
+function MessageContent({ content, cwd }: { content: any; cwd: string }) {
+  if (typeof content === "string")
+    return <WorkspaceText text={content} cwd={cwd} />;
   if (!Array.isArray(content)) return null;
   return (
     <>
       {content.map((part, index) => {
         if (part?.type === "text" && part.text)
-          return <pre key={index}>{part.text}</pre>;
+          return <WorkspaceText key={index} text={part.text} cwd={cwd} />;
         if (part?.type === "thinking" && part.thinking)
           return (
             <details key={index} className="reasoning-summary">
               <summary>Reasoning summary</summary>
-              <pre>{part.thinking}</pre>
+              <WorkspaceText text={part.thinking} cwd={cwd} />
             </details>
           );
         if (part?.type === "toolCall") {

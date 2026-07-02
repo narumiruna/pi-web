@@ -27,7 +27,7 @@ ENV NODE_ENV=production \
     PATH=/usr/local/cargo/bin:/home/node/.cargo/bin:/home/node/.local/bin:$PATH
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ca-certificates git \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates git imagemagick librsvg2-bin \
     && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force

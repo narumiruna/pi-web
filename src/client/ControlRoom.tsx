@@ -16,7 +16,7 @@ type StatusSnapshot = {
   isStreaming?: boolean;
 } | null;
 type Section = "session" | "git" | "model" | "tools" | "skills" | "appearance";
-type Tone = "ok" | "warning" | "danger" | "muted";
+type Tone = "ok" | "warning" | "danger" | "muted" | "info";
 
 type Card = {
   key: string;
@@ -298,7 +298,7 @@ export function ControlRoom({
       summary: boolField(runtime, "ok") ? "Running" : "Unavailable",
       detail: `${textField(runtime, "runtime") ?? "local"} · v${textField(runtime, "version") ?? "?"}`,
       value: runtime,
-      tone: boolField(runtime, "ok") ? "ok" : "warning",
+      tone: boolField(runtime, "ok") ? "ok" : "danger",
       section: "session",
       scope: "Runtime",
     },
@@ -310,7 +310,7 @@ export function ControlRoom({
         ? `${selected.cwd} · ${selected.messageCount} msgs`
         : "Create or pick a session to enable controls",
       value: selected,
-      tone: selected ? "ok" : "warning",
+      tone: selected ? "info" : "muted",
       section: "session",
       scope: "Session",
     },
@@ -341,7 +341,7 @@ export function ControlRoom({
       summary: `${activeToolNames.length}/${tools.length} enabled`,
       detail: selected ? "Session tool access" : "Select a session first",
       value: tools,
-      tone: selected ? "ok" : "muted",
+      tone: selected && tools.length > 0 ? "ok" : "muted",
       section: "tools",
       scope: "Session",
     },
@@ -361,7 +361,7 @@ export function ControlRoom({
       summary: themeNames[theme],
       detail: themeDetails[theme],
       value: { theme },
-      tone: "ok",
+      tone: "muted",
       section: "appearance",
       scope: "This browser",
     },
@@ -403,10 +403,12 @@ export function ControlRoom({
           <p>Local workspace: {cwd}</p>
         </div>
         <div className="hero-status">
-          <span className="status-pill ok">
+          <span
+            className={`status-pill ${boolField(runtime, "ok") ? "ok" : "danger"}`}
+          >
             {boolField(runtime, "ok") ? "Online" : "Offline"}
           </span>
-          <span className="status-pill">{model}</span>
+          <span className="status-pill info">{model}</span>
           <button
             type="button"
             className="primary"
@@ -435,23 +437,29 @@ export function ControlRoom({
               {card.section && (
                 <button
                   type="button"
+                  className="primary"
                   onClick={() => card.section && setSection(card.section)}
                 >
                   Open
                 </button>
               )}
-              <button type="button" onClick={() => setDetails(card)}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setDetails(card)}
+              >
                 Details
               </button>
-              {card.actions?.map((action) => (
-                <button
-                  type="button"
-                  key={action.label}
-                  onClick={action.onClick}
-                >
-                  {action.label}
-                </button>
-              ))}
+              {!card.section &&
+                card.actions?.map((action) => (
+                  <button
+                    type="button"
+                    key={action.label}
+                    onClick={action.onClick}
+                  >
+                    {action.label}
+                  </button>
+                ))}
             </div>
           </section>
         ))}
@@ -522,6 +530,12 @@ export function ControlRoom({
                   </button>
                 </div>
               </div>
+              {!selected && (
+                <div className="empty-hint">
+                  <span aria-hidden="true">○</span>
+                  Pick a session from the sidebar to unlock session controls.
+                </div>
+              )}
               <div className="summary-grid">
                 <div>
                   <span>Runtime</span>

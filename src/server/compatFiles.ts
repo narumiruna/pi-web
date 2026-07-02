@@ -33,6 +33,7 @@ import {
 } from "./compatShared.js";
 import type { CompatDeps as Deps, StoredProject } from "./compatTypes.js";
 import { resolveInside } from "./pathSafety.js";
+import { imageMimeFromPath, readWorkspaceImage } from "./workspaceImages.js";
 
 export function registerFileCompatRoutes(app: FastifyInstance, deps: Deps) {
   app.get<{ Params: { "*": string }; Querystring: { type?: string } }>(
@@ -143,14 +144,16 @@ function registerWorkspaceRoutes(
   }>(
     `${prefix}/projects/:projectId/workspaces/:workspaceId/file/preview`,
     async (request, reply) => {
-      const file = resolveInside(
-        await workspaceRoot(
-          deps,
-          request.params.projectId,
-          request.params.workspaceId,
-        ),
-        request.query.path ?? ".",
+      const root = await workspaceRoot(
+        deps,
+        request.params.projectId,
+        request.params.workspaceId,
       );
+      const file = resolveInside(root, request.query.path ?? ".");
+      if (imageMimeFromPath(file)) {
+        const image = await readWorkspaceImage(root, request.query.path ?? ".");
+        return reply.type(image.mimeType).send(image.data);
+      }
       return reply.type(mimeFromPath(file)).send(await readFile(file));
     },
   );

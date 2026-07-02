@@ -220,8 +220,8 @@ export function Sidebar({
                       </span>
                       <small>{session.cwd}</small>
                       <span className="session-meta">
-                        <span>{formatRelativeTime(session.modified)}</span>
-                        <span>{session.messageCount} msgs</span>
+                        {formatRelativeTime(session.modified)} ·{" "}
+                        {session.messageCount} msgs
                       </span>
                     </button>
                     <button
