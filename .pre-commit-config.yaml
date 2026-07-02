@@ -2,4 +2,17 @@ repos:
   - repo: https://github.com/biomejs/pre-commit
     rev: v2.5.2
     hooks:
-      - id: biome-ci
+      - id: biome-check
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: detect-private-key
+      - id: check-yaml
