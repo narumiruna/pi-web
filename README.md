@@ -39,10 +39,16 @@ docker compose up --build
 
 Open <http://127.0.0.1:30141>.
 
+The image installs `uv` and the latest uv-managed Python by default. Pin versions with build args:
+
+```bash
+UV_VERSION=0.11.26 PYTHON_VERSION=3.12 docker compose build
+```
+
 The compose file mounts:
 
 - `~/.pi/agent:/home/node/.pi/agent` for Pi config/auth/sessions.
-- `${PI_WEB_WORKSPACE:-.}:/workspace` as the editable workspace.
+- `${PI_WEB_WORKSPACE:-./workspace}:/workspace` as the editable workspace.
 
 Container sessions use `/workspace`; mount the host project you want Pi to edit there:
 
