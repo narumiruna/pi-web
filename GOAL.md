@@ -8,3 +8,6 @@
 - 介面可以設定是否開啟 tools, skills
 - 提供 cli 可以直接在 terminal 上, 在某個資料夾底下開啟 pi-web
 - Dockerfile 中支援 uv & python
+
+## UI/UX
+- 若 workspace 中有新增或移除檔案, File Explorer 會自動更新
