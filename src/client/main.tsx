@@ -119,16 +119,24 @@ function noticeTone(message: string): "warning" | "danger" | "ok" | "info" {
   if (
     text.includes("saved") ||
     text.includes("updated") ||
-    text.includes("copied")
+    text.includes("copied") ||
+    text.includes("deleted")
   )
     return "ok";
   return "info";
 }
 
+function sessionTitle(session: SessionInfo): string {
+  return session.name || session.firstMessage || "Untitled";
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error ?? res.statusText);
@@ -141,6 +149,8 @@ function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionFilter, setSessionFilter] = useState("");
   const [selected, setSelected] = useState<SessionInfo | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SessionInfo | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [streamText, setStreamText] = useState("");
   const [streamThinking, setStreamThinking] = useState("");
@@ -559,6 +569,43 @@ function App() {
     await loadStatus(selectedId);
   }
 
+  function requestSessionDelete(
+    session: SessionInfo,
+    event?: React.MouseEvent<HTMLElement>,
+  ) {
+    event?.stopPropagation();
+    setDeleteTarget(session);
+  }
+
+  async function confirmSessionDelete() {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeletingSessionId(target.id);
+    try {
+      await api(`/api/sessions/${target.id}`, { method: "DELETE" });
+      setSessions((value) => value.filter((item) => item.id !== target.id));
+      if (selectedId === target.id) {
+        eventsRef.current?.close();
+        eventsRef.current = null;
+        setSelected(null);
+        setMessages([]);
+        setStreamText("");
+        setStreamThinking("");
+        setRunning(false);
+        setStatus(null);
+        setTools([]);
+        setCommands([]);
+      }
+      await loadSessions();
+      setDeleteTarget(null);
+      setNotice(`Deleted session “${sessionTitle(target)}”`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletingSessionId("");
+    }
+  }
+
   return (
     <div
       className="app"
@@ -622,23 +669,41 @@ function App() {
           />
           <div className="session-list">
             {filteredSessions.map((session) => {
-              const title = session.name || session.firstMessage || "Untitled";
+              const title = sessionTitle(session);
+              const deleting = deletingSessionId === session.id;
+              const active = selected?.id === session.id;
               return (
-                <button
+                <div
                   key={session.id}
-                  className={`session ${selected?.id === session.id ? "active" : ""}`}
-                  onClick={() => setSelected(session)}
+                  className={`session-row ${active ? "active" : ""}`}
                 >
-                  <span className="session-heading">
-                    <span>{title}</span>
-                    {selected?.id === session.id && <em>active</em>}
-                  </span>
-                  <small>{session.cwd}</small>
-                  <span className="session-meta">
-                    <span>{formatRelativeTime(session.modified)}</span>
-                    <span>{session.messageCount} msgs</span>
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    className={`session ${active ? "active" : ""}`}
+                    disabled={deleting}
+                    onClick={() => setSelected(session)}
+                  >
+                    <span className="session-heading">
+                      <span>{title}</span>
+                      {active && <em>active</em>}
+                    </span>
+                    <small>{session.cwd}</small>
+                    <span className="session-meta">
+                      <span>{formatRelativeTime(session.modified)}</span>
+                      <span>{session.messageCount} msgs</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="session-delete"
+                    aria-label={`Delete ${title}`}
+                    title="Delete session"
+                    disabled={deleting}
+                    onClick={(event) => requestSessionDelete(session, event)}
+                  >
+                    {deleting ? "…" : "×"}
+                  </button>
+                </div>
               );
             })}
             {filteredSessions.length === 0 && (
@@ -783,6 +848,7 @@ function App() {
             onTheme={setTheme}
             onModel={setModel}
             onTools={saveTools}
+            onDeleteSession={requestSessionDelete}
             onNotice={setNotice}
             onSessionsChanged={async () => {
               await loadSessions();
@@ -792,6 +858,59 @@ function App() {
         )}
         {tab === "file" && <FilePane file={file} />}
       </main>
+      {deleteTarget && (
+        <div className="delete-dialog-backdrop">
+          <button
+            type="button"
+            className="delete-dialog-scrim"
+            aria-label="Cancel delete"
+            onClick={() => {
+              if (deletingSessionId !== deleteTarget.id) setDeleteTarget(null);
+            }}
+          />
+          <section
+            className="delete-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-session-title"
+          >
+            <div className="delete-dialog-icon" aria-hidden="true">
+              ×
+            </div>
+            <div>
+              <div className="panel-title">Delete session</div>
+              <h2 id="delete-session-title">{sessionTitle(deleteTarget)}</h2>
+              <p>
+                This removes the session transcript file. The workspace files
+                stay untouched.
+              </p>
+              <div className="delete-dialog-meta">
+                <span>{deleteTarget.cwd}</span>
+                <span>{deleteTarget.messageCount} msgs</span>
+              </div>
+            </div>
+            <div className="delete-dialog-actions">
+              <button
+                type="button"
+                disabled={deletingSessionId === deleteTarget.id}
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger"
+                disabled={deletingSessionId === deleteTarget.id}
+                onClick={() => void confirmSessionDelete()}
+              >
+                {deletingSessionId === deleteTarget.id
+                  ? "Deleting…"
+                  : "Delete session"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

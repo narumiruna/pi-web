@@ -61,8 +61,12 @@ async function listSessions() {
 async function resolveSessionPath(id: string): Promise<string | undefined> {
   const cached = sessionPathCache.get(id);
   if (cached && existsSync(cached)) return cached;
+  sessionPathCache.delete(id);
   await listSessions();
-  return sessionPathCache.get(id);
+  const fresh = sessionPathCache.get(id);
+  if (fresh && existsSync(fresh)) return fresh;
+  sessionPathCache.delete(id);
+  return undefined;
 }
 
 function makeUiContext(webSession: WebSession): any {

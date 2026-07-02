@@ -245,12 +245,19 @@ pre {
   margin-top: 8px;
   overflow: auto;
 }
+.session-row {
+  position: relative;
+  border-radius: 10px;
+}
 .session,
 .file-row {
   text-align: left;
   width: 100%;
   background: transparent;
   border-color: transparent;
+}
+.session {
+  padding-right: 40px;
 }
 .session:hover,
 .file-row:hover {
@@ -260,6 +267,26 @@ pre {
   background: var(--active);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+.session-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  opacity: 0;
+}
+.session-row:hover .session-delete,
+.session-row.active .session-delete,
+.session-delete:focus-visible {
+  opacity: 1;
+}
+.session-delete:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
 }
 .session-heading {
   display: flex;
@@ -367,6 +394,62 @@ pre {
 }
 .notice-icon {
   color: var(--warning);
+}
+.delete-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.5);
+}
+.delete-dialog-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+.delete-dialog {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(460px, 100%);
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+}
+.delete-dialog-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 16%, var(--card));
+  color: var(--danger);
+  font-size: 24px;
+}
+.delete-dialog h2,
+.delete-dialog p {
+  margin: 4px 0;
+}
+.delete-dialog-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.delete-dialog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .chat-tab {
   display: flex;

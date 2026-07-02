@@ -31,7 +31,10 @@ type Card = {
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error ?? res.statusText);
@@ -86,6 +89,7 @@ export function ControlRoom({
   onTheme,
   onModel,
   onTools,
+  onDeleteSession,
   onNotice,
   onSessionsChanged,
 }: {
@@ -98,6 +102,7 @@ export function ControlRoom({
   onTheme: (theme: Theme) => void;
   onModel: (value: string) => Promise<void>;
   onTools: (tools: string[]) => Promise<void>;
+  onDeleteSession: (session: SessionInfo) => void;
   onNotice: (message: string) => void;
   onSessionsChanged: () => Promise<void>;
 }) {
@@ -162,13 +167,6 @@ export function ControlRoom({
     });
     await onSessionsChanged();
     onNotice("Session renamed");
-  }
-
-  async function deleteSession() {
-    if (!selected || !confirm("Delete this session file?")) return;
-    await api(`/api/sessions/${selected.id}`, { method: "DELETE" });
-    await onSessionsChanged();
-    onNotice("Session deleted");
   }
 
   async function saveApiKey(provider: DashboardValue) {
@@ -499,7 +497,7 @@ export function ControlRoom({
                     type="button"
                     className="danger"
                     disabled={!selected}
-                    onClick={() => void deleteSession()}
+                    onClick={() => selected && onDeleteSession(selected)}
                   >
                     Delete
                   </button>

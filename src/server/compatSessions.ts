@@ -46,10 +46,13 @@ export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
   app.delete<{ Params: { id: string } }>(
     "/api/sessions/:id",
     async (request, reply) => {
+      const liveSession = deps.liveSessions.get(request.params.id);
       const file = await deps.resolveSessionPath(request.params.id);
-      if (!file) return reply.code(404).send({ error: "Session not found" });
-      deps.liveSessions.get(request.params.id)?.dispose?.();
-      await unlink(file);
+      if (!file && !liveSession)
+        return reply.code(404).send({ error: "Session not found" });
+      liveSession?.dispose?.();
+      deps.liveSessions.delete(request.params.id);
+      if (file) await unlink(file);
       return { ok: true, deleted: true };
     },
   );
