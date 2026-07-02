@@ -1,0 +1,5 @@
+- 基本的網頁介面, 可以在遠端操作 pi-coding-agent
+- 可以在網頁上使用 terminal
+- terminal 和 pi-coding-agent 可以用 tabs 來切換
+- 對話窗可以貼圖片和顯示圖片
+- 要有 Dockerfile 和 compose.yml

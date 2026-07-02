@@ -1,0 +1,2 @@
+- DO NOT EDIT `GOAL.md` DIRECTLY.
+- READ `GOAL.md`.
