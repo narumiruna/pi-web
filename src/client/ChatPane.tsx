@@ -1,5 +1,5 @@
 // biome-ignore-all lint: Pi SDK wire data is dynamic in this MVP.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { getPastedImageFiles } from "./clipboardImages";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
 import { nextStepFor, noticeTone, scopeLabel, toolRiskLabel } from "./uiText";
@@ -9,6 +9,25 @@ import {
 } from "./workspaceImages";
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
+function stableHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1)
+    hash = Math.imul(31, hash) + value.charCodeAt(index);
+  return (hash >>> 0).toString(36);
+}
+
+export function messageKey(message: any, index = 0): string {
+  const stableId =
+    message.id ??
+    message.entryId ??
+    message.messageId ??
+    message.toolCallId ??
+    message.createdAt ??
+    message.timestamp;
+  if (stableId) return `${message.role ?? "event"}:${stableId}`;
+  return `${message.role ?? "event"}:${stableHash(textFromContent(message.content))}:${index}`;
+}
 
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
@@ -65,13 +84,14 @@ export function ChatPane(props: {
   const endRef = useRef<HTMLDivElement | null>(null);
   useEffect(
     () => endRef.current?.scrollIntoView({ block: "end" }),
-    [props.messages, props.streamText],
+    [props.messages, props.streamText, props.streamThinking],
   );
   const activeToolNames = useMemo(
     () => props.tools.filter((tool) => tool.active).map((tool) => tool.name),
     [props.tools],
   );
-  const empty = props.messages.length === 0 && !props.streamText;
+  const empty =
+    props.messages.length === 0 && !props.streamText && !props.streamThinking;
 
   return (
     <div className="chat-tab">
@@ -174,20 +194,12 @@ export function ChatPane(props: {
         />
       ) : (
         <div className="messages">
-          {props.messages.map((message, index) => (
-            <Message key={index} message={message} cwd={props.cwd} />
-          ))}
-          {(props.streamThinking || props.streamText) && (
-            <div className="message assistant streaming">
-              {props.streamThinking && (
-                <details className="reasoning-summary">
-                  <summary>Reasoning summary</summary>
-                  <WorkspaceText text={props.streamThinking} cwd={props.cwd} />
-                </details>
-              )}
-              <WorkspaceText text={props.streamText} cwd={props.cwd} />
-            </div>
-          )}
+          <MessageList messages={props.messages} cwd={props.cwd} />
+          <StreamingMessage
+            text={props.streamText}
+            thinking={props.streamThinking}
+            cwd={props.cwd}
+          />
           <div ref={endRef} />
         </div>
       )}
@@ -262,7 +274,25 @@ function EmptyState({
   );
 }
 
-function Message({ message, cwd }: { message: any; cwd: string }) {
+const MessageList = memo(function MessageList({
+  messages,
+  cwd,
+}: {
+  messages: any[];
+  cwd: string;
+}) {
+  return messages.map((message, index) => (
+    <Message key={messageKey(message, index)} message={message} cwd={cwd} />
+  ));
+});
+
+const Message = memo(function Message({
+  message,
+  cwd,
+}: {
+  message: any;
+  cwd: string;
+}) {
   const role = message.role ?? "event";
   const text = textFromContent(message.content);
   const tone = message.isError ? "danger" : noticeTone(text);
@@ -296,7 +326,30 @@ function Message({ message, cwd }: { message: any; cwd: string }) {
       {nextStep && <div className="next-step">{nextStep}</div>}
     </div>
   );
-}
+});
+
+const StreamingMessage = memo(function StreamingMessage({
+  text,
+  thinking,
+  cwd,
+}: {
+  text: string;
+  thinking: string;
+  cwd: string;
+}) {
+  if (!thinking && !text) return null;
+  return (
+    <div className="message assistant streaming">
+      {thinking && (
+        <details className="reasoning-summary">
+          <summary>Reasoning summary</summary>
+          <WorkspaceText text={thinking} cwd={cwd} />
+        </details>
+      )}
+      <WorkspaceText text={text} cwd={cwd} />
+    </div>
+  );
+});
 
 function WorkspaceText({ text, cwd }: { text: string; cwd: string }) {
   return (
