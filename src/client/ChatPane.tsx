@@ -299,10 +299,35 @@ const Message = memo(function Message({
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
   const images = imagesFromContent(message.content);
+  if (role === "toolResult") {
+    return (
+      <div className={`message ${role} ${toneClass}`}>
+        <details
+          className={`tool-card result ${toneClass}`}
+          open={message.isError}
+        >
+          <summary>
+            Tool result{message.toolName ? ` · ${message.toolName}` : ""}
+            {message.isError ? " · Error" : ""}
+          </summary>
+          {images.map((image, index) => (
+            <img
+              key={index}
+              className="inline-image"
+              src={`data:${image.mimeType};base64,${image.data}`}
+              alt="attached"
+            />
+          ))}
+          <WorkspaceText text={text} cwd={cwd} />
+          {nextStep && <div className="next-step">{nextStep}</div>}
+        </details>
+      </div>
+    );
+  }
   return (
     <div className={`message ${role} ${toneClass}`}>
       <div className="role">
-        {role === "toolResult" ? "Tool result" : role}
+        {role}
         {message.toolName ? ` · ${message.toolName}` : ""}
       </div>
       {images.map((image, index) => (
@@ -313,16 +338,7 @@ const Message = memo(function Message({
           alt="attached"
         />
       ))}
-      {role === "toolResult" ? (
-        <div className={`tool-card result ${toneClass}`}>
-          <div className="tool-card-title">
-            {message.isError ? "Error" : "Result"}
-          </div>
-          <WorkspaceText text={text} cwd={cwd} />
-        </div>
-      ) : (
-        <MessageContent content={message.content} cwd={cwd} />
-      )}
+      <MessageContent content={message.content} cwd={cwd} />
       {nextStep && <div className="next-step">{nextStep}</div>}
     </div>
   );
