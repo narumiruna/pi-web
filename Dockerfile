@@ -6,6 +6,9 @@ FROM rust:${RUST_VERSION}-slim-bookworm AS rust
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN npm ci
 COPY . .
@@ -27,7 +30,7 @@ ENV NODE_ENV=production \
     PATH=/usr/local/cargo/bin:/home/node/.cargo/bin:/home/node/.local/bin:$PATH
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential ca-certificates git imagemagick librsvg2-bin \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates git imagemagick librsvg2-bin python3 \
     && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force

@@ -507,24 +507,12 @@ pre {
   display: flex;
   flex-direction: column;
 }
-.terminal-output {
-  flex: 1;
-  overflow: auto;
-  padding: 16px;
+.terminal-shell {
   background: #05070c;
-  color: #d1fae5;
+  overflow: hidden;
 }
-.terminal-input {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-  padding: 10px;
-  background: var(--panel-2);
-}
-.terminal-input input {
-  flex: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+.terminal-shell .xterm {
+  height: 100%;
 }
 .file-title {
   border-bottom: 1px solid var(--border);
