@@ -26,12 +26,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check PAT token
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PAT_TOKEN}" ]; then
+            echo "PAT_TOKEN secret is required to trigger release workflows."
+            exit 1
+          fi
+
       - name: Checkout branch
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.ref_name }}
-          token: ${{ secrets.PAT_TOKEN }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -69,10 +78,6 @@ jobs:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${PAT_TOKEN}" ]; then
-            echo "PAT_TOKEN secret is required to trigger release workflows."
-            exit 1
-          fi
           git push \
             "https://x-access-token:${PAT_TOKEN}@github.com/${{ github.repository }}.git" \
             "HEAD:${{ github.ref_name }}" \
