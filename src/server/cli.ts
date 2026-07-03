@@ -16,6 +16,7 @@ if (args.includes("--help") || args.includes("-h")) {
 Usage: pi-web [--port 30141] [--hostname 127.0.0.1] [--cwd /path]
 
 Workspace precedence: --cwd, PI_WEB_CWD, WORKSPACE_ROOT, then the current directory.
+When neither --port nor PORT is set, pi-web starts at 30141 and tries the next free port.
 
 Examples:
   mkdir example && cd example && pi-web
@@ -37,6 +38,7 @@ if (command === "doctor" || command === "status") {
 }
 
 const port = take("--port", "-p") ?? process.env.PORT;
+if (!port) process.env.PI_WEB_AUTO_PORT = "1";
 const host = take("--hostname", "-H") ?? process.env.HOST;
 const cwd =
   take("--cwd", "-C") ??
