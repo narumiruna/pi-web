@@ -58,7 +58,17 @@ const themeDetails: Record<Theme, string> = {
 const themeOptions: Theme[] = ["system", "dark", "light"];
 
 function routeProjectId(cwd: string) {
-  return btoa(cwd).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  let binary = "";
+  for (const byte of new TextEncoder().encode(cwd))
+    binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function pathBaseName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
 export function ControlRoom({
@@ -347,9 +357,7 @@ export function ControlRoom({
                   </div>
                   <div>
                     <span>Workspace</span>
-                    <strong>
-                      {selected.cwd.split("/").pop() || selected.cwd}
-                    </strong>
+                    <strong>{pathBaseName(selected.cwd)}</strong>
                     <small>{selected.cwd}</small>
                   </div>
                 </div>

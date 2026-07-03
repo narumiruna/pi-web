@@ -81,6 +81,13 @@ function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
 }
 
+function secureSvg(reply: any, mimeType: string) {
+  if (mimeType !== "image/svg+xml") return;
+  reply
+    .header("Content-Security-Policy", "sandbox; default-src 'none'")
+    .header("X-Content-Type-Options", "nosniff");
+}
+
 function sessionInfo(
   info: Awaited<ReturnType<typeof SessionManager.listAll>>[number],
 ) {
@@ -772,6 +779,7 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
     try {
       const cwd = resolve(request.query.cwd || DEFAULT_CWD);
       const image = await readWorkspaceImage(cwd, request.query.path || ".");
+      secureSvg(reply, image.mimeType);
       return reply.type(image.mimeType).send(image.data);
     } catch (error) {
       return reply.code(400).send(jsonError(error));
@@ -790,6 +798,7 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
       const imageMimeType = imageMimeFromPath(file);
       if (imageMimeType) {
         const image = await readWorkspaceImage(cwd, request.query.path || ".");
+        secureSvg(reply, image.mimeType);
         return {
           path: image.path,
           size: image.size,

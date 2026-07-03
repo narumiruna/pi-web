@@ -8,10 +8,11 @@ describe("messageKey", () => {
     );
   });
 
-  it("uses content instead of array position for messages without ids", () => {
+  it("uses content plus position for messages without ids", () => {
     const message = { role: "user", content: "hello" };
 
-    expect(messageKey(message)).toMatch(/^user:[a-z0-9]+$/);
-    expect(messageKey(message)).not.toBe("user:0");
+    expect(messageKey(message, 2)).toMatch(/^user:[a-z0-9]+:2$/);
+    expect(messageKey(message, 2)).not.toBe("user:2");
+    expect(messageKey(message, 3)).not.toBe(messageKey(message, 2));
   });
 });

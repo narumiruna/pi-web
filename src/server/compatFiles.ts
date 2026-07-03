@@ -1,14 +1,16 @@
 // biome-ignore-all lint: compatibility routes intentionally accept third-party wire shapes.
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { runCommand } from "./compatShared.js";
 import type { CompatDeps as Deps } from "./compatTypes.js";
+import { resolveInside } from "./pathSafety.js";
 
-export function registerFileCompatRoutes(app: FastifyInstance, _deps: Deps) {
+export function registerFileCompatRoutes(app: FastifyInstance, deps: Deps) {
   app.get<{ Params: { projectId: string; workspaceId: string } }>(
     "/api/projects/:projectId/workspaces/:workspaceId/git/status",
     async (request, reply) => {
       const root = workspaceRoot(
+        deps.defaultCwd,
         request.params.projectId,
         request.params.workspaceId,
       );
@@ -18,12 +20,20 @@ export function registerFileCompatRoutes(app: FastifyInstance, _deps: Deps) {
   );
 }
 
-export function workspaceRoot(projectId: string, workspaceId: string) {
+export function workspaceRoot(
+  defaultCwd: string,
+  projectId: string,
+  workspaceId: string,
+) {
   const decoded = decodePathId(
     workspaceId === "root" ? projectId : workspaceId,
   );
   if (!decoded || decoded.includes("\0") || !isAbsolute(decoded)) return;
-  return resolve(decoded);
+  try {
+    return resolveInside(defaultCwd, relative(resolve(defaultCwd), decoded));
+  } catch {
+    return;
+  }
 }
 
 function decodePathId(value: string) {

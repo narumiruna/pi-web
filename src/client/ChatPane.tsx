@@ -18,7 +18,7 @@ function contentHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-export function messageKey(message: any): string {
+export function messageKey(message: any, index = 0): string {
   const stableId =
     message.id ??
     message.entryId ??
@@ -31,7 +31,7 @@ export function messageKey(message: any): string {
     textFromContent(message.content) ||
     JSON.stringify(message.content ?? message) ||
     "empty";
-  return `${message.role ?? "event"}:${contentHash(fallback)}`;
+  return `${message.role ?? "event"}:${contentHash(fallback)}:${index}`;
 }
 
 function textFromContent(content: any): string {
@@ -286,8 +286,8 @@ const MessageList = memo(function MessageList({
   messages: any[];
   cwd: string;
 }) {
-  return messages.map((message) => (
-    <Message key={messageKey(message)} message={message} cwd={cwd} />
+  return messages.map((message, index) => (
+    <Message key={messageKey(message, index)} message={message} cwd={cwd} />
   ));
 });
 

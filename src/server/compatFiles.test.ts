@@ -5,16 +5,21 @@ import { workspaceRoot } from "./compatFiles.js";
 const idFor = (path: string) => Buffer.from(path).toString("base64url");
 
 describe("compat workspace root", () => {
-  it("decodes absolute root workspace ids", () => {
-    expect(workspaceRoot(idFor("/tmp/project"), "root")).toBe(
+  it("decodes absolute root workspace ids inside the default cwd", () => {
+    expect(workspaceRoot("/tmp", idFor("/tmp/project"), "root")).toBe(
       resolve("/tmp/project"),
     );
   });
 
-  it("rejects malformed, relative, empty, and nul-containing ids", () => {
-    expect(workspaceRoot("not valid", "root")).toBeUndefined();
-    expect(workspaceRoot(idFor("relative"), "root")).toBeUndefined();
-    expect(workspaceRoot("_", "root")).toBeUndefined();
-    expect(workspaceRoot(idFor("/tmp/\0project"), "root")).toBeUndefined();
+  it("rejects malformed, relative, empty, nul-containing, and outside ids", () => {
+    expect(workspaceRoot("/tmp", "not valid", "root")).toBeUndefined();
+    expect(workspaceRoot("/tmp", idFor("relative"), "root")).toBeUndefined();
+    expect(workspaceRoot("/tmp", "_", "root")).toBeUndefined();
+    expect(
+      workspaceRoot("/tmp", idFor("/tmp/\0project"), "root"),
+    ).toBeUndefined();
+    expect(
+      workspaceRoot("/tmp/allowed", idFor("/tmp/other"), "root"),
+    ).toBeUndefined();
   });
 });
