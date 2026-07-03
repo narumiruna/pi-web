@@ -48,7 +48,7 @@ function terminalEnv() {
   const currentPath = process.env[PATH_ENV] ?? process.env.PATH ?? "";
   return {
     ...process.env,
-    [PATH_ENV]: [LOCAL_BIN_DIR, currentPath]
+    [PATH_ENV]: [currentPath, LOCAL_BIN_DIR]
       .filter(Boolean)
       .join(PATH_SEPARATOR),
     TERM: "xterm-256color",
@@ -828,17 +828,28 @@ app.get<{ Querystring: { cwd?: string } }>(
   (socket: any, request) => {
     const cwd = resolve(request.query.cwd || DEFAULT_CWD);
     const shell = process.env.PI_WEB_SHELL || "/bin/sh";
-    ensurePtyHelperExecutable();
-    const child = pty.spawn(shell, [], {
-      cols: 80,
-      rows: 24,
-      cwd,
-      env: terminalEnv(),
-      name: "xterm-256color",
-    });
     const send = (event: Json) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(event));
     };
+    let child: pty.IPty;
+    try {
+      ensurePtyHelperExecutable();
+      child = pty.spawn(shell, [], {
+        cols: 80,
+        rows: 24,
+        cwd,
+        env: terminalEnv(),
+        name: "xterm-256color",
+      });
+    } catch (error) {
+      send({
+        type: "data",
+        data: `[terminal failed: ${jsonError(error).error}]\r\n`,
+      });
+      send({ type: "exit", code: 1 });
+      socket.close();
+      return;
+    }
     child.onData((data) => send({ type: "data", data }));
     child.onExit(({ exitCode }) => send({ type: "exit", code: exitCode }));
     socket.on("message", (raw: Buffer | string) => {

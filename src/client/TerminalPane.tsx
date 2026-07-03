@@ -4,27 +4,6 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 
-export const MAX_TERMINAL_OUTPUT_CHARS = 120_000;
-const TRIMMED_TERMINAL_MARKER = "[trimmed older terminal output]\n";
-
-export function appendTerminalOutput(
-  current: string,
-  chunk: string,
-  maxChars = MAX_TERMINAL_OUTPUT_CHARS,
-): string {
-  const limit = Number.isFinite(maxChars)
-    ? Math.max(0, Math.floor(maxChars))
-    : 0;
-  if (limit <= 0) return "";
-  const next = current + chunk;
-  if (next.length <= limit) return next;
-  if (limit <= TRIMMED_TERMINAL_MARKER.length) return next.slice(-limit);
-  const keep = limit - TRIMMED_TERMINAL_MARKER.length;
-  const tail = next.slice(-keep);
-  const lineStart = tail.indexOf("\n");
-  return `${TRIMMED_TERMINAL_MARKER}${lineStart >= 0 ? tail.slice(lineStart + 1) : tail}`;
-}
-
 export function TerminalPane({ cwd }: { cwd: string }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
 
