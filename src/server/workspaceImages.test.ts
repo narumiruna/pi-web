@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,26 +24,31 @@ describe("workspace images", () => {
     expect(image.data.toString()).toBe("png bytes");
   });
 
-  it("converts SVG images to PNG with the supplied converter", async () => {
+  it("serves SVG images unchanged", async () => {
     const root = await tempRoot();
-    const svgPath = join(root, "diagram.svg");
-    await writeFile(svgPath, '<svg xmlns="http://www.w3.org/2000/svg" />');
-
-    const image = await readWorkspaceImage(
-      root,
-      "diagram.svg",
-      async (file) => {
-        expect(file).toBe(svgPath);
-        return Buffer.from("png bytes");
-      },
+    await writeFile(
+      join(root, "diagram.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg" />',
     );
+
+    const image = await readWorkspaceImage(root, "diagram.svg");
 
     expect(image).toMatchObject({
       path: "diagram.svg",
-      mimeType: "image/png",
-      converted: true,
+      mimeType: "image/svg+xml",
+      converted: false,
     });
-    expect(image.data.toString()).toBe("png bytes");
+    expect(image.data.toString()).toContain("<svg");
+  });
+
+  it("rejects oversized SVG images before reading them", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "huge.svg"), "<svg />");
+    await truncate(join(root, "huge.svg"), 25 * 1024 * 1024 + 1);
+
+    await expect(readWorkspaceImage(root, "huge.svg")).rejects.toThrow(
+      /too large/,
+    );
   });
 
   it("rejects workspace traversal", async () => {

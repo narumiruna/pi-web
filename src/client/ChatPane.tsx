@@ -11,11 +11,19 @@ import {
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
-function stableHash(value: string): string {
+function contentHash(value: string): string {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1)
     hash = Math.imul(31, hash) + value.charCodeAt(index);
   return (hash >>> 0).toString(36);
+}
+
+function safeJson(value: unknown) {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 export function messageKey(message: any, index = 0): string {
@@ -27,7 +35,11 @@ export function messageKey(message: any, index = 0): string {
     message.createdAt ??
     message.timestamp;
   if (stableId) return `${message.role ?? "event"}:${stableId}`;
-  return `${message.role ?? "event"}:${stableHash(textFromContent(message.content))}:${index}`;
+  const fallback =
+    textFromContent(message.content) ||
+    safeJson(message.content ?? message) ||
+    "empty";
+  return `${message.role ?? "event"}:${contentHash(fallback)}:${index}`;
 }
 
 function textFromContent(content: any): string {
