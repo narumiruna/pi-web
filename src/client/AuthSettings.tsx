@@ -128,7 +128,7 @@ export function AuthSettings({
           const id = providerId(provider);
           const configured = providerConfigured(provider);
           const name = providerName(provider);
-          const canSaveKey = supportsApiKey(provider);
+          const canSaveKey = Boolean(id) && supportsApiKey(provider);
           return (
             <tr key={id || name}>
               <th scope="row">{name}</th>
@@ -173,7 +173,9 @@ export function AuthSettings({
                   )}
                   <button
                     type="button"
-                    disabled={!clearable(provider) || savingProvider === id}
+                    disabled={
+                      !id || !clearable(provider) || savingProvider === id
+                    }
                     onClick={() => void clearApiKey(provider)}
                   >
                     Clear

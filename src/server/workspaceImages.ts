@@ -3,6 +3,8 @@ import { relative } from "node:path";
 import { imageMimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
 
+const MAX_SVG_BYTES = 25 * 1024 * 1024;
+
 export type WorkspaceImage = {
   path: string;
   size: number;
@@ -23,6 +25,8 @@ export async function readWorkspaceImage(
 
   const mimeType = imageMimeFromPath(file);
   if (!mimeType) throw new Error("Unsupported image type");
+  if (mimeType === "image/svg+xml" && info.size > MAX_SVG_BYTES)
+    throw new Error("SVG image is too large");
 
   return {
     path: relative(root, file),

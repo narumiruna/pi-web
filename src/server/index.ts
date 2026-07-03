@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import * as pty from "node-pty";
 import { registerCompatRoutes } from "./compatRoutes.js";
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
@@ -81,7 +81,7 @@ function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
 }
 
-function secureSvg(reply: any, mimeType: string) {
+function secureSvg(reply: FastifyReply, mimeType: string) {
   if (mimeType !== "image/svg+xml") return;
   reply
     .header("Content-Security-Policy", "sandbox; default-src 'none'")

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,6 +39,16 @@ describe("workspace images", () => {
       converted: false,
     });
     expect(image.data.toString()).toContain("<svg");
+  });
+
+  it("rejects oversized SVG images before reading them", async () => {
+    const root = await tempRoot();
+    await writeFile(join(root, "huge.svg"), "<svg />");
+    await truncate(join(root, "huge.svg"), 25 * 1024 * 1024 + 1);
+
+    await expect(readWorkspaceImage(root, "huge.svg")).rejects.toThrow(
+      /too large/,
+    );
   });
 
   it("rejects workspace traversal", async () => {

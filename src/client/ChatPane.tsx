@@ -18,6 +18,14 @@ function contentHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
+function safeJson(value: unknown) {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function messageKey(message: any, index = 0): string {
   const stableId =
     message.id ??
@@ -29,7 +37,7 @@ export function messageKey(message: any, index = 0): string {
   if (stableId) return `${message.role ?? "event"}:${stableId}`;
   const fallback =
     textFromContent(message.content) ||
-    JSON.stringify(message.content ?? message) ||
+    safeJson(message.content ?? message) ||
     "empty";
   return `${message.role ?? "event"}:${contentHash(fallback)}:${index}`;
 }
