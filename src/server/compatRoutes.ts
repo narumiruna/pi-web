@@ -188,9 +188,10 @@ function registerAuthRoutes(app: FastifyInstance, deps: Deps) {
     "/api/auth/login-jobs/:id",
     async (request) => {
       const job = authLoginJobs.get(request.params.id);
-      job?.abort.abort();
-      job?.rejectInput?.(new Error("Login cancelled"));
-      authLoginJobs.delete(request.params.id);
+      if (job) {
+        cancelAuthLoginJob(job, "Login cancelled");
+        authLoginJobs.delete(job.id);
+      }
       return { success: true };
     },
   );
@@ -306,6 +307,15 @@ function waitForAuthInput(job: AuthLoginJob, step: AuthJobStep) {
   });
 }
 
+function cancelAuthLoginJob(job: AuthLoginJob, message: string) {
+  job.error = message;
+  setAuthJobStep(job, "error", { type: "error", message });
+  job.abort.abort();
+  job.rejectInput?.(new Error(message));
+  job.resolveInput = undefined;
+  job.rejectInput = undefined;
+}
+
 function startAuthLoginJob(provider: string, deps: Deps) {
   const auth = AuthStorage.create();
   const providerInfo = auth
@@ -322,7 +332,13 @@ function startAuthLoginJob(provider: string, deps: Deps) {
     abort: new AbortController(),
   };
   authLoginJobs.set(job.id, job);
-  setTimeout(() => authLoginJobs.delete(job.id), 30 * 60_000).unref?.();
+  setTimeout(() => {
+    const current = authLoginJobs.get(job.id);
+    if (!current) return;
+    if (current.status !== "done" && current.status !== "error")
+      cancelAuthLoginJob(current, "Login expired");
+    authLoginJobs.delete(job.id);
+  }, 30 * 60_000).unref?.();
 
   void auth
     .login(provider, {

@@ -109,6 +109,10 @@ function statusLabel(provider: DashboardValue) {
   return "Configured";
 }
 
+function openExternal(url: string) {
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export function AuthSettings({
   providers,
   onChanged,
@@ -123,16 +127,37 @@ export function AuthSettings({
   const [job, setJob] = useState<AuthJob | null>(null);
   const [jobInput, setJobInput] = useState("");
 
+  const jobId = job?.id;
+  const jobStatus = job?.status;
+
   useEffect(() => {
-    if (!job || job.status === "done" || job.status === "error") return;
+    if (!jobId || jobStatus === "done" || jobStatus === "error") return;
     let stopped = false;
     const refreshJob = async () => {
-      const next = await api<AuthJob>(`/api/auth/login-jobs/${job.id}`);
-      if (stopped) return;
-      setJob(next);
-      if (next.status === "done") {
-        onNotice(next.step?.type === "done" ? next.step.message : "Logged in");
-        await onChanged();
+      try {
+        const next = await api<AuthJob>(`/api/auth/login-jobs/${jobId}`);
+        if (stopped) return;
+        setJob(next);
+        if (next.status === "done") {
+          onNotice(
+            next.step?.type === "done" ? next.step.message : "Logged in",
+          );
+          await onChanged();
+        }
+      } catch (error) {
+        if (stopped) return;
+        const message = error instanceof Error ? error.message : String(error);
+        setJob((current) =>
+          current?.id === jobId
+            ? {
+                ...current,
+                status: "error",
+                error: message,
+                step: { type: "error", message },
+              }
+            : current,
+        );
+        onNotice(message);
       }
     };
     const timer = window.setInterval(() => void refreshJob(), 1000);
@@ -141,7 +166,7 @@ export function AuthSettings({
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [job, onChanged, onNotice]);
+  }, [jobId, jobStatus, onChanged, onNotice]);
 
   async function saveApiKey(provider: DashboardValue) {
     const id = providerId(provider);
@@ -343,7 +368,7 @@ function renderJobStep(
     return (
       <span>
         {step.instructions ?? "Open the login URL."}{" "}
-        <button type="button" onClick={() => window.open(step.url, "_blank")}>
+        <button type="button" onClick={() => openExternal(step.url)}>
           Open login
         </button>
       </span>
@@ -355,7 +380,7 @@ function renderJobStep(
         Enter <strong>{step.userCode}</strong> at {step.verificationUri}{" "}
         <button
           type="button"
-          onClick={() => window.open(step.verificationUri, "_blank")}
+          onClick={() => openExternal(step.verificationUri)}
         >
           Open
         </button>
@@ -385,7 +410,7 @@ function renderJobStep(
     return (
       <span className="row-actions">
         {step.type === "manual_code" && step.url && (
-          <button type="button" onClick={() => window.open(step.url, "_blank")}>
+          <button type="button" onClick={() => openExternal(step.url)}>
             Open login
           </button>
         )}
