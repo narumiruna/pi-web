@@ -1,4 +1,5 @@
 // biome-ignore-all lint: compatibility routes intentionally accept third-party wire shapes.
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -19,13 +20,18 @@ import {
   registerProjectRoutes,
 } from "./compatFiles.js";
 import { registerSessionCompatRoutes } from "./compatSessions.js";
-import { configPath, expandHome, writeJson } from "./compatShared.js";
+import {
+  configPath,
+  errorMessage,
+  expandHome,
+  writeJson,
+} from "./compatShared.js";
 import type { CompatDeps as Deps } from "./compatTypes.js";
 
 export function registerCompatRoutes(app: FastifyInstance, deps: Deps) {
   addBinaryParsers(app);
   registerUtilityRoutes(app, deps);
-  registerAuthRoutes(app);
+  registerAuthRoutes(app, deps);
   registerSkillRoutes(app);
   registerPackageRoutes(app, deps);
   registerSessionCompatRoutes(app, deps);
@@ -104,7 +110,7 @@ function registerUtilityRoutes(app: FastifyInstance, deps: Deps) {
   });
 }
 
-function registerAuthRoutes(app: FastifyInstance) {
+function registerAuthRoutes(app: FastifyInstance, deps: Deps) {
   app.get("/api/auth/providers", async () => providerResponse(false));
   app.get("/api/auth/all-providers", async () => providerResponse(true));
   app.get<{ Params: { provider: string } }>(
@@ -128,27 +134,296 @@ function registerAuthRoutes(app: FastifyInstance) {
       key: request.body.key,
       env: request.body.env,
     });
+    refreshLiveAuth(deps);
     return { success: true };
   });
   app.delete<{ Params: { provider: string } }>(
     "/api/auth/api-key/:provider",
     async (request) => {
       AuthStorage.create().remove(request.params.provider);
+      refreshLiveAuth(deps);
       return { success: true };
     },
   );
+  app.post<{ Body: { provider?: string } }>(
+    "/api/auth/login-jobs",
+    async (request, reply) => {
+      const provider = request.body?.provider;
+      if (!provider)
+        return reply.code(400).send({ error: "provider required" });
+      try {
+        return startAuthLoginJob(provider, deps);
+      } catch (error) {
+        return reply.code(400).send({ error: errorMessage(error) });
+      }
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    "/api/auth/login-jobs/:id",
+    async (request, reply) => {
+      const job = authLoginJobs.get(request.params.id);
+      if (!job) return reply.code(404).send({ error: "login job not found" });
+      return authJobStatus(job);
+    },
+  );
+  app.post<{ Params: { id: string }; Body: { value?: string } }>(
+    "/api/auth/login-jobs/:id/input",
+    async (request, reply) => {
+      const job = authLoginJobs.get(request.params.id);
+      if (!job) return reply.code(404).send({ error: "login job not found" });
+      const resolveInput = job.resolveInput;
+      if (!resolveInput)
+        return reply
+          .code(409)
+          .send({ error: "login is not waiting for input" });
+      job.resolveInput = undefined;
+      job.rejectInput = undefined;
+      job.status = "running";
+      job.step = { type: "progress", message: "Continuing login…" };
+      resolveInput(request.body?.value ?? "");
+      return authJobStatus(job);
+    },
+  );
+  app.delete<{ Params: { id: string } }>(
+    "/api/auth/login-jobs/:id",
+    async (request) => {
+      const job = authLoginJobs.get(request.params.id);
+      if (job) {
+        cancelAuthLoginJob(job, "Login cancelled");
+        authLoginJobs.delete(job.id);
+      }
+      return { success: true };
+    },
+  );
+}
+
+type AuthJobStep =
+  | { type: "auth_url"; url: string; instructions?: string }
+  | {
+      type: "device_code";
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | {
+      type: "manual_code";
+      message: string;
+      placeholder?: string;
+      url?: string;
+      instructions?: string;
+    }
+  | {
+      type: "prompt";
+      message: string;
+      placeholder?: string;
+      allowEmpty?: boolean;
+    }
+  | {
+      type: "select";
+      message: string;
+      options: Array<{ id: string; label: string }>;
+    }
+  | { type: "progress"; message: string }
+  | { type: "done"; message: string }
+  | { type: "error"; message: string };
+
+type AuthLoginJob = {
+  id: string;
+  provider: string;
+  providerName: string;
+  status: "running" | "waiting" | "done" | "error";
+  step?: AuthJobStep;
+  messages: string[];
+  error?: string;
+  authInfo?: { url: string; instructions?: string };
+  abort: AbortController;
+  resolveInput?: (value: string) => void;
+  rejectInput?: (error: Error) => void;
+};
+
+const authLoginJobs = new Map<string, AuthLoginJob>();
+const OAUTH_PROVIDERS_WITH_API_KEYS = new Set(["anthropic"]);
+
+function canUseApiKey(provider: string, oauthProviderIds: Set<string>) {
+  return (
+    !oauthProviderIds.has(provider) ||
+    OAUTH_PROVIDERS_WITH_API_KEYS.has(provider)
+  );
+}
+
+function providerAuthTypes(supportsOAuth: boolean, supportsApiKey: boolean) {
+  return [
+    ...(supportsOAuth ? ["oauth"] : []),
+    ...(supportsApiKey ? ["api_key"] : []),
+  ];
+}
+
+function authJobStatus(job: AuthLoginJob) {
+  return {
+    id: job.id,
+    provider: job.provider,
+    providerName: job.providerName,
+    status: job.status,
+    step: job.step,
+    messages: job.messages,
+    error: job.error,
+  };
+}
+
+function setAuthJobStep(
+  job: AuthLoginJob,
+  status: AuthLoginJob["status"],
+  step: AuthJobStep,
+) {
+  job.status = status;
+  job.step = step;
+  if (step.type === "progress") job.messages.push(step.message);
+}
+
+function waitForAuthInput(job: AuthLoginJob, step: AuthJobStep) {
+  setAuthJobStep(job, "waiting", step);
+  return new Promise<string>((resolve, reject) => {
+    if (job.abort.signal.aborted) {
+      reject(new Error("Login cancelled"));
+      return;
+    }
+    const cleanup = () => {
+      job.abort.signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(new Error("Login cancelled"));
+    };
+    job.resolveInput = (value) => {
+      cleanup();
+      resolve(value);
+    };
+    job.rejectInput = (error) => {
+      cleanup();
+      reject(error);
+    };
+    job.abort.signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function cancelAuthLoginJob(job: AuthLoginJob, message: string) {
+  job.error = message;
+  setAuthJobStep(job, "error", { type: "error", message });
+  job.abort.abort();
+  job.rejectInput?.(new Error(message));
+  job.resolveInput = undefined;
+  job.rejectInput = undefined;
+}
+
+function startAuthLoginJob(provider: string, deps: Deps) {
+  const auth = AuthStorage.create();
+  const providerInfo = auth
+    .getOAuthProviders()
+    .find((item) => item.id === provider);
+  if (!providerInfo) throw new Error(`No subscription login for ${provider}`);
+
+  const job: AuthLoginJob = {
+    id: randomUUID(),
+    provider,
+    providerName: providerInfo.name,
+    status: "running",
+    messages: [],
+    abort: new AbortController(),
+  };
+  authLoginJobs.set(job.id, job);
+  setTimeout(() => {
+    const current = authLoginJobs.get(job.id);
+    if (!current) return;
+    if (current.status !== "done" && current.status !== "error")
+      cancelAuthLoginJob(current, "Login expired");
+    authLoginJobs.delete(job.id);
+  }, 30 * 60_000).unref?.();
+
+  void auth
+    .login(provider, {
+      onAuth: (info: { url: string; instructions?: string }) => {
+        job.authInfo = info;
+        setAuthJobStep(job, "running", { type: "auth_url", ...info });
+      },
+      onDeviceCode: (info: any) =>
+        setAuthJobStep(job, "running", { type: "device_code", ...info }),
+      onPrompt: (prompt: any) =>
+        waitForAuthInput(job, {
+          type: "prompt",
+          message: prompt.message,
+          placeholder: prompt.placeholder,
+          allowEmpty: prompt.allowEmpty,
+        }),
+      onProgress: (message: string) =>
+        setAuthJobStep(job, "running", { type: "progress", message }),
+      onManualCodeInput: () =>
+        waitForAuthInput(job, {
+          type: "manual_code",
+          message:
+            "Complete login in your browser, or paste the authorization code / redirect URL here:",
+          placeholder: job.authInfo?.url,
+          url: job.authInfo?.url,
+          instructions: job.authInfo?.instructions,
+        }),
+      onSelect: (prompt: any) =>
+        waitForAuthInput(job, {
+          type: "select",
+          message: prompt.message,
+          options: prompt.options ?? [],
+        }),
+      signal: job.abort.signal,
+    } as any)
+    .then(() => {
+      refreshLiveAuth(deps);
+      job.resolveInput = undefined;
+      job.rejectInput = undefined;
+      setAuthJobStep(job, "done", {
+        type: "done",
+        message: `Logged in to ${providerInfo.name}`,
+      });
+    })
+    .catch((error) => {
+      job.resolveInput = undefined;
+      job.rejectInput = undefined;
+      job.error = errorMessage(error);
+      setAuthJobStep(job, "error", { type: "error", message: job.error });
+    });
+
+  return authJobStatus(job);
+}
+
+function refreshLiveAuth(deps: Deps) {
+  for (const session of deps.liveSessions.values()) {
+    try {
+      session.inner.modelRegistry.authStorage.reload();
+      session.inner.modelRegistry.refresh();
+      session.broadcast({ type: "status", status: session.status() });
+    } catch {
+      // Best effort; stale sessions will refresh on next process start.
+    }
+  }
 }
 
 async function providerResponse(includeAll: boolean) {
   const auth = AuthStorage.create();
   const registry = ModelRegistry.create(auth);
   const models = includeAll ? registry.getAll() : registry.getAvailable();
+  const oauthProviders = auth.getOAuthProviders();
+  const oauthProviderIds = new Set(
+    oauthProviders.map((provider) => provider.id),
+  );
   const providers = new Map<string, any>();
   for (const model of models) {
+    const supportsOAuth = oauthProviderIds.has(model.provider);
+    const supportsApiKey = canUseApiKey(model.provider, oauthProviderIds);
     const current = providers.get(model.provider) ?? {
       id: model.provider,
       name: registry.getProviderDisplayName(model.provider),
       auth: registry.getProviderAuthStatus(model.provider),
+      authTypes: providerAuthTypes(supportsOAuth, supportsApiKey),
+      supportsOAuth,
+      supportsApiKey,
       models: [],
     };
     current.models.push({
@@ -159,14 +434,25 @@ async function providerResponse(includeAll: boolean) {
     });
     providers.set(model.provider, current);
   }
-  for (const oauth of auth.getOAuthProviders()) {
-    if (!providers.has(oauth.id))
-      providers.set(oauth.id, {
-        id: oauth.id,
-        name: oauth.name ?? oauth.id,
-        auth: auth.getAuthStatus(oauth.id),
-        models: [],
-      });
+  for (const oauth of oauthProviders) {
+    const current = providers.get(oauth.id);
+    if (current) {
+      current.supportsOAuth = true;
+      current.authTypes = providerAuthTypes(
+        true,
+        Boolean(current.supportsApiKey),
+      );
+      continue;
+    }
+    providers.set(oauth.id, {
+      id: oauth.id,
+      name: oauth.name ?? oauth.id,
+      auth: auth.getAuthStatus(oauth.id),
+      authTypes: providerAuthTypes(true, false),
+      supportsOAuth: true,
+      supportsApiKey: false,
+      models: [],
+    });
   }
   return { providers: [...providers.values()] };
 }

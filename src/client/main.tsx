@@ -75,6 +75,11 @@ function App() {
     setSessions(data.sessions);
   }, []);
 
+  const loadModels = useCallback(async () => {
+    const data = await api<{ models: ModelInfo[] }>("/api/models");
+    setModels(data.models);
+  }, []);
+
   const loadMessages = useCallback(
     async (id = selectedId) => {
       if (!id) return;
@@ -204,11 +209,9 @@ function App() {
       setCwd(config.defaultCwd);
     });
     void loadSessions();
-    void api<{ models: ModelInfo[] }>("/api/models")
-      .then((data) => setModels(data.models))
-      .catch((error) => setNotice(error.message));
+    void loadModels().catch((error) => setNotice(error.message));
     return () => eventsRef.current?.close();
-  }, [loadSessions]);
+  }, [loadSessions, loadModels]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -530,6 +533,7 @@ function App() {
               await loadSessions();
               setSelected(null);
             }}
+            onAuthChanged={loadModels}
           />
         )}
         {tab === "file" && <FilePane file={file} />}

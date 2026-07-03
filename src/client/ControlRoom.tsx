@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AuthSettings, providerConfigured, providerName } from "./AuthSettings";
 import { api } from "./api";
 import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
 import { scopeLabel, sessionTitle, toolRiskLabel } from "./uiText";
@@ -49,12 +50,6 @@ const boolField = (value: DashboardValue, key: string) =>
   field(value, key) === true;
 const count = (items: unknown[], label: string) =>
   `${items.length} ${label}${items.length === 1 ? "" : "s"}`;
-const providerId = (provider: DashboardValue) =>
-  textField(provider, "id") ?? textField(provider, "provider") ?? "";
-const providerName = (provider: DashboardValue) =>
-  textField(provider, "name") ?? providerId(provider);
-const providerConfigured = (provider: DashboardValue) =>
-  boolField(field(provider, "auth"), "configured");
 const shortTime = (value?: string) =>
   value ? new Date(value).toLocaleString() : "unknown";
 const themeNames: Record<Theme, string> = {
@@ -82,6 +77,7 @@ export function ControlRoom({
   onDeleteSession,
   onNotice,
   onSessionsChanged,
+  onAuthChanged,
 }: {
   cwd: string;
   selected: SessionInfo | null;
@@ -95,13 +91,12 @@ export function ControlRoom({
   onDeleteSession: (session: SessionInfo) => void;
   onNotice: (message: string) => void;
   onSessionsChanged: () => Promise<void>;
+  onAuthChanged: () => Promise<void>;
 }) {
   const [data, setData] = useState<Record<string, DashboardValue>>({});
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState<Card | null>(null);
   const [section, setSection] = useState<Section>("session");
-  const [apiKeyInputs, setApiKeyInputs] = useState<Record<string, string>>({});
-  const [savingProvider, setSavingProvider] = useState("");
   const [savingSkill, setSavingSkill] = useState("");
   const [savingTools, setSavingTools] = useState(false);
 
@@ -138,6 +133,11 @@ export function ControlRoom({
 
   useEffect(() => void refresh(), [refresh]);
 
+  const handleAuthChanged = useCallback(async () => {
+    await refresh();
+    await onAuthChanged();
+  }, [refresh, onAuthChanged]);
+
   async function addProject() {
     await api("/api/projects", {
       method: "POST",
@@ -157,43 +157,6 @@ export function ControlRoom({
     });
     await onSessionsChanged();
     onNotice("Session renamed");
-  }
-
-  async function saveApiKey(provider: DashboardValue) {
-    const id = providerId(provider);
-    const key = apiKeyInputs[id]?.trim();
-    if (!id || !key) return;
-    setSavingProvider(id);
-    try {
-      await api(`/api/auth/api-key/${encodeURIComponent(id)}`, {
-        method: "POST",
-        body: JSON.stringify({ key }),
-      });
-      setApiKeyInputs((value) => ({ ...value, [id]: "" }));
-      await refresh();
-      onNotice(`${providerName(provider)} API key saved`);
-    } finally {
-      setSavingProvider("");
-    }
-  }
-
-  async function clearApiKey(provider: DashboardValue) {
-    const id = providerId(provider);
-    if (
-      !id ||
-      !confirm(`Remove saved credentials for ${providerName(provider)}?`)
-    )
-      return;
-    setSavingProvider(id);
-    try {
-      await api(`/api/auth/api-key/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-      });
-      await refresh();
-      onNotice(`${providerName(provider)} credentials removed`);
-    } finally {
-      setSavingProvider("");
-    }
   }
 
   async function updateTools(next: string[]) {
@@ -630,76 +593,11 @@ export function ControlRoom({
                 </select>
               </div>
 
-              {auth.length === 0 ? (
-                <div className="empty-small">No model providers reported.</div>
-              ) : (
-                <table className="api-key-table">
-                  <thead>
-                    <tr>
-                      <th>Provider</th>
-                      <th>Status</th>
-                      <th>API Key</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auth.map((provider) => {
-                      const value = provider as DashboardValue;
-                      const id = providerId(value);
-                      const configured = providerConfigured(value);
-                      const name = providerName(value);
-                      return (
-                        <tr key={id || name}>
-                          <th scope="row">{name}</th>
-                          <td>
-                            <span
-                              className={`status-pill ${configured ? "ok" : "warning"}`}
-                            >
-                              {configured ? "Configured" : "Missing"}
-                            </span>
-                          </td>
-                          <td>
-                            <input
-                              type="password"
-                              placeholder={
-                                configured ? "•••••• saved" : "Paste API key"
-                              }
-                              value={apiKeyInputs[id] ?? ""}
-                              onChange={(event) =>
-                                setApiKeyInputs((current) => ({
-                                  ...current,
-                                  [id]: event.target.value,
-                                }))
-                              }
-                            />
-                          </td>
-                          <td>
-                            <span className="row-actions">
-                              <button
-                                type="button"
-                                disabled={
-                                  !apiKeyInputs[id]?.trim() ||
-                                  savingProvider === id
-                                }
-                                onClick={() => void saveApiKey(value)}
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!configured || savingProvider === id}
-                                onClick={() => void clearApiKey(value)}
-                              >
-                                Clear
-                              </button>
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
+              <AuthSettings
+                providers={auth}
+                onChanged={handleAuthChanged}
+                onNotice={onNotice}
+              />
             </div>
           )}
 

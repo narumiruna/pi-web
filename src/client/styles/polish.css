@@ -585,6 +585,7 @@ input:disabled {
 .settings-layout {
   grid-template-columns: minmax(160px, 190px) minmax(0, 1fr);
   border-radius: 16px;
+  overflow: visible;
 }
 
 .settings-nav {
