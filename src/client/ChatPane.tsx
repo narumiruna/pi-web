@@ -11,7 +11,14 @@ import {
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
-function messageKey(message: any, index = 0): string {
+function contentHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1)
+    hash = Math.imul(31, hash) + value.charCodeAt(index);
+  return (hash >>> 0).toString(36);
+}
+
+export function messageKey(message: any): string {
   const stableId =
     message.id ??
     message.entryId ??
@@ -19,7 +26,12 @@ function messageKey(message: any, index = 0): string {
     message.toolCallId ??
     message.createdAt ??
     message.timestamp;
-  return `${message.role ?? "event"}:${stableId ?? index}`;
+  if (stableId) return `${message.role ?? "event"}:${stableId}`;
+  const fallback =
+    textFromContent(message.content) ||
+    JSON.stringify(message.content ?? message) ||
+    "empty";
+  return `${message.role ?? "event"}:${contentHash(fallback)}`;
 }
 
 function textFromContent(content: any): string {
@@ -274,8 +286,8 @@ const MessageList = memo(function MessageList({
   messages: any[];
   cwd: string;
 }) {
-  return messages.map((message, index) => (
-    <Message key={messageKey(message, index)} message={message} cwd={cwd} />
+  return messages.map((message) => (
+    <Message key={messageKey(message)} message={message} cwd={cwd} />
   ));
 });
 
