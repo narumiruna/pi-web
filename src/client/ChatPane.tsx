@@ -371,7 +371,7 @@ const StreamingMessage = memo(function StreamingMessage({
 function LinkifiedText({ text }: { text: string }) {
   return linkifyText(text).map((part, index) =>
     part.type === "link" ? (
-      <a key={index} href={part.href} target="_blank" rel="noreferrer">
+      <a key={index} href={part.href} target="_blank" rel="noopener noreferrer">
         {part.text}
       </a>
     ) : (

@@ -26,4 +26,13 @@ describe("linkifyText", () => {
       { type: "text", text: "." },
     ]);
   });
+
+  it("keeps balanced closing parentheses in URLs", () => {
+    const url = "https://en.wikipedia.org/wiki/Function_(mathematics)";
+
+    expect(linkifyText(`See ${url}`)).toEqual([
+      { type: "text", text: "See " },
+      { type: "link", text: url, href: url },
+    ]);
+  });
 });
