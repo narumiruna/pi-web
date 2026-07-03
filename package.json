@@ -3,12 +3,16 @@
   "version": "0.2.2",
   "description": "Local-first web UI for pi-coding-agent.",
   "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narumiruna/pi-web.git"
+  },
   "type": "module",
   "files": [
     "dist"
   ],
   "bin": {
-    "pi-web": "./dist/server/cli.js"
+    "pi-web": "dist/server/cli.js"
   },
   "scripts": {
     "dev": "bash -c 'trap \"kill 0\" EXIT; npm run dev:server & npm run dev:client & wait'",
