@@ -1,5 +1,22 @@
 # pi-web
 
+## Quick start
+
+Run once:
+
+```bash
+npx --yes @narumitw/pi-web@latest
+```
+
+Or install globally:
+
+```bash
+npm install -g @narumitw/pi-web
+pi-web
+```
+
+Open <http://127.0.0.1:30141>.
+
 Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-works/pi).
 
 ## Features
@@ -33,19 +50,9 @@ npm start
 
 Open <http://127.0.0.1:30141>.
 
-CLI:
-
-```bash
-mkdir example
-cd example
-pi-web
-# open the printed http://127.0.0.1:30141 URL
-```
-
 CLI workspace precedence is `--cwd`, then `PI_WEB_CWD`, then `WORKSPACE_ROOT`, then the current directory.
 
 ```bash
-npx @narumitw/pi-web
 pi-web --cwd /path/to/project --port 30141
 node dist/server/cli.js --cwd /path/to/project --port 30141
 ```
