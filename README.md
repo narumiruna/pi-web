@@ -42,7 +42,7 @@ pi-web
 # open the printed http://127.0.0.1:30141 URL
 ```
 
-CLI workspace precedence is `--cwd`, then `PI_WEB_CWD`, then the current directory.
+CLI workspace precedence is `--cwd`, then `PI_WEB_CWD`, then `WORKSPACE_ROOT`, then the current directory.
 
 ```bash
 npx @narumitw/pi-web

@@ -15,7 +15,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
 Usage: pi-web [--port 30141] [--hostname 127.0.0.1] [--cwd /path]
 
-Workspace precedence: --cwd, PI_WEB_CWD, then the current directory.
+Workspace precedence: --cwd, PI_WEB_CWD, WORKSPACE_ROOT, then the current directory.
 
 Examples:
   mkdir example && cd example && pi-web
@@ -38,7 +38,11 @@ if (command === "doctor" || command === "status") {
 
 const port = take("--port", "-p") ?? process.env.PORT;
 const host = take("--hostname", "-H") ?? process.env.HOST;
-const cwd = take("--cwd", "-C") ?? process.env.PI_WEB_CWD ?? process.cwd();
+const cwd =
+  take("--cwd", "-C") ??
+  process.env.PI_WEB_CWD ??
+  process.env.WORKSPACE_ROOT ??
+  process.cwd();
 if (port) process.env.PORT = port;
 if (host) process.env.HOST = host;
 process.env.PI_WEB_CWD = cwd;
