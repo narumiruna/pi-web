@@ -15,7 +15,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
 Usage: pi-web [--port 30141] [--hostname 127.0.0.1] [--cwd /path]
 
-Without --cwd, pi-web uses the current directory as the workspace.
+Workspace precedence: --cwd, PI_WEB_CWD, then the current directory.
 
 Examples:
   mkdir example && cd example && pi-web
@@ -38,9 +38,9 @@ if (command === "doctor" || command === "status") {
 
 const port = take("--port", "-p") ?? process.env.PORT;
 const host = take("--hostname", "-H") ?? process.env.HOST;
-const cwd = take("--cwd", "-C") ?? process.env.PI_WEB_CWD;
+const cwd = take("--cwd", "-C") ?? process.env.PI_WEB_CWD ?? process.cwd();
 if (port) process.env.PORT = port;
 if (host) process.env.HOST = host;
-if (cwd) process.env.PI_WEB_CWD = cwd;
+process.env.PI_WEB_CWD = cwd;
 
 await import("./index.js");
