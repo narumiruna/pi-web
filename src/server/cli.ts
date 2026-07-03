@@ -15,6 +15,13 @@ if (args.includes("--help") || args.includes("-h")) {
 
 Usage: pi-web [--port 30141] [--hostname 127.0.0.1] [--cwd /path]
 
+Workspace precedence: --cwd, PI_WEB_CWD, WORKSPACE_ROOT, then the current directory.
+
+Examples:
+  mkdir example && cd example && pi-web
+  npx @narumitw/pi-web
+  pi-web --cwd /path/to/project --port 30141
+
 Commands: doctor, status, version`);
   process.exit(0);
 }
@@ -31,9 +38,13 @@ if (command === "doctor" || command === "status") {
 
 const port = take("--port", "-p") ?? process.env.PORT;
 const host = take("--hostname", "-H") ?? process.env.HOST;
-const cwd = take("--cwd", "-C") ?? process.env.PI_WEB_CWD;
+const cwd =
+  take("--cwd", "-C") ??
+  process.env.PI_WEB_CWD ??
+  process.env.WORKSPACE_ROOT ??
+  process.cwd();
 if (port) process.env.PORT = port;
 if (host) process.env.HOST = host;
-if (cwd) process.env.PI_WEB_CWD = cwd;
+process.env.PI_WEB_CWD = cwd;
 
 await import("./index.js");
