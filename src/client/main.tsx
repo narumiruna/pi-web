@@ -21,6 +21,7 @@ import "./styles.css";
 type Tab = "chat" | "terminal" | "file" | "settings";
 
 const THEME_STORAGE_KEY = "pi-web.theme";
+const FILE_REFRESH_DEBOUNCE_MS = 150;
 
 function loadTheme(): Theme {
   const value = localStorage.getItem(THEME_STORAGE_KEY);
@@ -254,15 +255,27 @@ function App() {
 
   useEffect(() => {
     if (!activeCwd) return;
+    let refreshTimer = 0;
+    const scheduleLoadFiles = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(
+        () => void loadFiles(),
+        FILE_REFRESH_DEBOUNCE_MS,
+      );
+    };
     const events = new EventSource(
       `/api/files/watch?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(filePath)}`,
     );
     events.onmessage = (message) => {
       const event = JSON.parse(message.data);
-      if (event.type === "ready" || event.type === "change") void loadFiles();
+      if (event.type === "ready" || event.type === "change")
+        scheduleLoadFiles();
     };
     events.onerror = () => events.close();
-    return () => events.close();
+    return () => {
+      window.clearTimeout(refreshTimer);
+      events.close();
+    };
   }, [activeCwd, filePath, loadFiles]);
 
   async function newSession() {
