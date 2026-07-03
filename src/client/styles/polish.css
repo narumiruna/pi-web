@@ -125,6 +125,7 @@
   background: color-mix(in srgb, var(--panel-2) 72%, transparent);
 }
 .reasoning-summary summary,
+.tool-card summary,
 .tool-card-title {
   color: var(--muted);
   cursor: pointer;
@@ -132,6 +133,10 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   margin-bottom: 6px;
+}
+.reasoning-summary:not([open]) summary,
+.tool-card:not([open]) summary {
+  margin-bottom: 0;
 }
 .message.toolResult.warning,
 .message.toolResult.danger {
