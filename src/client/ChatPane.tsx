@@ -1,6 +1,7 @@
 // biome-ignore-all lint: Pi SDK wire data is dynamic in this MVP.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { getPastedImageFiles } from "./clipboardImages";
+import { linkifyText } from "./textLinks";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
 import { nextStepFor, noticeTone, scopeLabel, toolRiskLabel } from "./uiText";
 import {
@@ -299,12 +300,16 @@ const Message = memo(function Message({
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
   const images = imagesFromContent(message.content);
+  const [toolResultOpen, setToolResultOpen] = useState(
+    Boolean(message.isError),
+  );
   if (role === "toolResult") {
     return (
       <div className={`message ${role} ${toneClass}`}>
         <details
           className={`tool-card result ${toneClass}`}
-          defaultOpen={message.isError}
+          open={toolResultOpen}
+          onToggle={(event) => setToolResultOpen(event.currentTarget.open)}
         >
           <summary>
             Tool result{message.toolName ? ` · ${message.toolName}` : ""}
@@ -367,6 +372,18 @@ const StreamingMessage = memo(function StreamingMessage({
   );
 });
 
+function LinkifiedText({ text }: { text: string }) {
+  return linkifyText(text).map((part, index) =>
+    part.type === "link" ? (
+      <a key={index} href={part.href} target="_blank" rel="noopener noreferrer">
+        {part.text}
+      </a>
+    ) : (
+      <span key={index}>{part.text}</span>
+    ),
+  );
+}
+
 function WorkspaceText({ text, cwd }: { text: string; cwd: string }) {
   return (
     <>
@@ -380,7 +397,9 @@ function WorkspaceText({ text, cwd }: { text: string; cwd: string }) {
             loading="lazy"
           />
         ) : part.text ? (
-          <pre key={index}>{part.text}</pre>
+          <pre key={index}>
+            <LinkifiedText text={part.text} />
+          </pre>
         ) : null,
       )}
     </>

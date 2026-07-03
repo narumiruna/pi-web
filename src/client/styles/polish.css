@@ -425,6 +425,11 @@ input:disabled {
   background: var(--panel);
 }
 
+.message a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 .message.user {
   background: color-mix(in srgb, var(--accent) 7%, var(--panel));
   border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
