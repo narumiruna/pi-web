@@ -15,7 +15,7 @@ npm install -g @narumitw/pi-web
 pi-web
 ```
 
-Open the printed URL (defaults to <http://127.0.0.1:30141>; CLI uses the next free port if busy).
+Open the printed URL (without `--port`/`PORT`, it starts at <http://127.0.0.1:30141> and uses the next free port if busy).
 
 Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-works/pi).
 

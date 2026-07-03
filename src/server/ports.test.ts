@@ -15,6 +15,10 @@ describe("portCandidates", () => {
   it("leaves port 0 to the OS", () => {
     expect(portCandidates(0, true)).toEqual([0]);
   });
+
+  it("rejects invalid ports", () => {
+    expect(() => portCandidates(65_536, true)).toThrow(RangeError);
+  });
 });
 
 describe("isAddressInUse", () => {

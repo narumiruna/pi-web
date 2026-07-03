@@ -4,6 +4,8 @@ const MAX_PORT = 65535;
 const AUTO_PORT_FALLBACKS = 50;
 
 export function portCandidates(port: number, auto: boolean) {
+  if (!Number.isInteger(port) || port < 0 || port > MAX_PORT)
+    throw new RangeError(`Invalid port: ${port}`);
   if (!auto || port === 0) return [port];
 
   const last = Math.min(MAX_PORT, port + AUTO_PORT_FALLBACKS);
