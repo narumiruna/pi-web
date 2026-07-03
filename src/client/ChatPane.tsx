@@ -11,14 +11,7 @@ import {
 
 const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
-function stableHash(value: string): string {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1)
-    hash = Math.imul(31, hash) + value.charCodeAt(index);
-  return (hash >>> 0).toString(36);
-}
-
-export function messageKey(message: any, index = 0): string {
+function messageKey(message: any, index = 0): string {
   const stableId =
     message.id ??
     message.entryId ??
@@ -26,8 +19,7 @@ export function messageKey(message: any, index = 0): string {
     message.toolCallId ??
     message.createdAt ??
     message.timestamp;
-  if (stableId) return `${message.role ?? "event"}:${stableId}`;
-  return `${message.role ?? "event"}:${stableHash(textFromContent(message.content))}:${index}`;
+  return `${message.role ?? "event"}:${stableId ?? index}`;
 }
 
 function textFromContent(content: any): string {

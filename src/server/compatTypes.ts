@@ -13,10 +13,3 @@ export type CompatDeps = {
   ) => Promise<any>;
   liveSessions: Map<string, any>;
 };
-
-export type StoredProject = {
-  id: string;
-  name: string;
-  path: string;
-  createdAt: string;
-};

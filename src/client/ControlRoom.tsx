@@ -18,18 +18,11 @@ type StatusSnapshot = {
   isStreaming?: boolean;
 } | null;
 type Section = "session" | "git" | "model" | "tools" | "skills" | "appearance";
-type Tone = "ok" | "warning" | "danger" | "muted" | "info";
 
-type Card = {
-  key: string;
-  title: string;
-  summary: string;
-  detail: string;
-  value: DashboardValue;
-  tone?: Tone;
-  section?: Section;
-  scope?: string;
-  actions?: Array<{ label: string; onClick: () => void }>;
+type LoadedData = {
+  auth?: DashboardValue;
+  skills?: DashboardValue;
+  git?: DashboardValue;
 };
 
 const object = (value: DashboardValue) =>
@@ -64,6 +57,10 @@ const themeDetails: Record<Theme, string> = {
 };
 const themeOptions: Theme[] = ["system", "dark", "light"];
 
+function routeProjectId(cwd: string) {
+  return btoa(cwd).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
 export function ControlRoom({
   cwd,
   selected,
@@ -93,9 +90,8 @@ export function ControlRoom({
   onSessionsChanged: () => Promise<void>;
   onAuthChanged: () => Promise<void>;
 }) {
-  const [data, setData] = useState<Record<string, DashboardValue>>({});
+  const [data, setData] = useState<LoadedData>({});
   const [loading, setLoading] = useState(false);
-  const [details, setDetails] = useState<Card | null>(null);
   const [section, setSection] = useState<Section>("session");
   const [savingSkill, setSavingSkill] = useState("");
   const [savingTools, setSavingTools] = useState(false);
@@ -103,31 +99,25 @@ export function ControlRoom({
   const refresh = useCallback(async () => {
     if (!cwd) return;
     setLoading(true);
-    const read = async (key: string, path: string, init?: RequestInit) => {
+    const read = async (key: keyof LoadedData, path: string) => {
       try {
-        return [key, await api<DashboardValue>(path, init)];
+        return [key, await api<DashboardValue>(path)] as const;
       } catch (error) {
         return [
           key,
           { error: error instanceof Error ? error.message : String(error) },
-        ];
+        ] as const;
       }
     };
-    const projectId = btoa(cwd)
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, "");
     const entries = await Promise.all([
-      read("status", "/api/pi-web/status"),
-      read("projects", "/api/projects"),
-      read("machines", "/api/machines"),
       read("auth", "/api/auth/all-providers"),
       read("skills", `/api/skills?cwd=${encodeURIComponent(cwd)}`),
-      read("plugins", `/api/plugins?cwd=${encodeURIComponent(cwd)}`),
-      read("packages", "/api/pi-packages"),
-      read("git", `/api/projects/${projectId}/workspaces/root/git/status`),
+      read(
+        "git",
+        `/api/projects/${routeProjectId(cwd)}/workspaces/root/git/status`,
+      ),
     ]);
-    setData(Object.fromEntries(entries) as Record<string, DashboardValue>);
+    setData(Object.fromEntries(entries) as LoadedData);
     setLoading(false);
   }, [cwd]);
 
@@ -137,15 +127,6 @@ export function ControlRoom({
     await refresh();
     await onAuthChanged();
   }, [refresh, onAuthChanged]);
-
-  async function addProject() {
-    await api("/api/projects", {
-      method: "POST",
-      body: JSON.stringify({ path: cwd, name: cwd.split("/").pop() || cwd }),
-    });
-    await refresh();
-    onNotice("Project saved");
-  }
 
   async function renameSession() {
     if (!selected) return;
@@ -191,31 +172,26 @@ export function ControlRoom({
     }
   }
 
-  const runtime = data.status;
-  const projects = arrayField(data.projects, "projects");
-  const machines = arrayField(data.machines, "machines");
   const auth = arrayField(data.auth, "providers");
   const skills = arrayField(data.skills, "skills");
-  const packages = arrayField(data.packages, "packages");
-  const plugins = arrayField(data.plugins, "packages").length
-    ? arrayField(data.plugins, "packages")
-    : arrayField(data.plugins, "plugins");
+  const gitError = textField(data.git, "error");
   const gitFiles = arrayField(data.git, "files").map(String);
   const gitOutput = textField(data.git, "output") ?? "";
   const gitBranch = (textField(data.git, "branch") ?? gitOutput.split("\n")[0])
     .replace(/^##\s*/, "")
     .trim();
   const gitUnavailable =
-    boolField(data.git, "available") === false || gitOutput.includes("ENOENT");
+    Boolean(gitError) ||
+    boolField(data.git, "available") === false ||
+    gitOutput.includes("ENOENT");
   const gitClean = !gitUnavailable && boolField(data.git, "clean");
-  const gitTone: Tone = gitUnavailable || !gitClean ? "warning" : "ok";
   const gitSummary = gitUnavailable
-    ? "Git unavailable"
+    ? (gitError ?? "Git unavailable")
     : gitClean
       ? "Working tree clean"
       : "Uncommitted changes";
   const gitDetail = gitUnavailable
-    ? "Git executable was not found in this environment."
+    ? "Git status could not be read for this workspace."
     : gitClean
       ? gitBranch || "No changes detected"
       : `${gitBranch || "Current branch"} · ${count(gitFiles, "changed file")}`;
@@ -232,113 +208,34 @@ export function ControlRoom({
   const currentModelKnown = models.some(
     (item) => `${item.provider}/${item.id}` === currentModelValue,
   );
-  const authSummary = auth.find(providerConfigured)
-    ? `${providerName(auth.find(providerConfigured) as DashboardValue)} configured`
+  const configuredProvider = auth.find(providerConfigured);
+  const authSummary = configuredProvider
+    ? `${providerName(configuredProvider)} configured`
     : "No provider configured";
   const enabledSkills = skills.filter(
-    (skill) => !boolField(skill as DashboardValue, "disableModelInvocation"),
+    (skill) => !boolField(skill, "disableModelInvocation"),
   );
   const selectedTitle = selected
     ? sessionTitle(selected)
     : "No session selected";
 
-  const cards: Card[] = [
-    {
-      key: "runtime",
-      title: "Runtime",
-      summary: boolField(runtime, "ok") ? "Running" : "Unavailable",
-      detail: `${textField(runtime, "runtime") ?? "local"} · v${textField(runtime, "version") ?? "?"}`,
-      value: runtime,
-      tone: boolField(runtime, "ok") ? "ok" : "danger",
-      section: "session",
-      scope: "Runtime",
-    },
-    {
-      key: "sessions",
-      title: "Session",
-      summary: selected ? selectedTitle : "Select a session",
-      detail: selected
-        ? `${selected.cwd} · ${selected.messageCount} msgs`
-        : "Create or pick a session to enable controls",
-      value: selected,
-      tone: selected ? "info" : "muted",
-      section: "session",
-      scope: "Session",
-    },
-    {
-      key: "git",
-      title: "Git status",
-      summary: gitSummary,
-      detail: gitDetail,
-      value: data.git,
-      tone: gitTone,
-      section: "git",
-      scope: "Workspace",
-      actions: [{ label: "Refresh", onClick: () => void refresh() }],
-    },
-    {
-      key: "model",
-      title: "Model & API Keys",
-      summary: model,
-      detail: authSummary,
-      value: { model: status?.model, auth: data.auth },
-      tone: auth.some(providerConfigured) ? "ok" : "warning",
-      section: "model",
-      scope: "Session model · Global keys",
-    },
-    {
-      key: "tools",
-      title: "Tools",
-      summary: `${activeToolNames.length}/${tools.length} enabled`,
-      detail: selected ? "Session tool access" : "Select a session first",
-      value: tools,
-      tone: selected && tools.length > 0 ? "ok" : "muted",
-      section: "tools",
-      scope: "Session",
-    },
-    {
-      key: "skills",
-      title: "Skills",
-      summary: `${enabledSkills.length}/${skills.length} model-enabled`,
-      detail: "Slash commands remain available when hidden from the model",
-      value: data.skills,
-      tone: skills.length ? "ok" : "muted",
-      section: "skills",
-      scope: "Workspace",
-    },
-    {
-      key: "appearance",
-      title: "Appearance",
-      summary: themeNames[theme],
-      detail: themeDetails[theme],
-      value: { theme },
-      tone: "muted",
-      section: "appearance",
-      scope: "This browser",
-    },
-    {
-      key: "advanced",
-      title: "Advanced",
-      summary: `${projects.length} projects · ${machines.length} machines`,
-      detail: `${plugins.length} plugins · ${packages.length} packages`,
-      value: { projects, machines, plugins, packages },
-      tone: "muted",
-      scope: "Runtime",
-    },
-  ];
-
   const navItems: Array<{
     key: Section;
     label: string;
     meta: string;
-    tone?: Tone;
+    tone?: "ok" | "warning" | "muted";
   }> = [
     {
       key: "session",
       label: "Session",
       meta: selected ? "Active" : "Pick one",
     },
-    { key: "git", label: "Git", meta: gitSummary, tone: gitTone },
+    {
+      key: "git",
+      label: "Git",
+      meta: gitClean ? "Clean" : gitUnavailable ? "Unavailable" : "Changes",
+      tone: gitClean ? "ok" : "warning",
+    },
     { key: "model", label: "Model & API Keys", meta: authSummary },
     { key: "tools", label: "Tools", meta: `${activeToolNames.length} enabled` },
     { key: "skills", label: "Skills", meta: `${enabledSkills.length} enabled` },
@@ -346,7 +243,7 @@ export function ControlRoom({
   ];
 
   return (
-    <div className="control-room product-dashboard">
+    <div className="control-room">
       <section className="dashboard-hero">
         <div>
           <div className="eyebrow">Coding agent workspace</div>
@@ -354,10 +251,8 @@ export function ControlRoom({
           <p>Local workspace: {cwd}</p>
         </div>
         <div className="hero-status">
-          <span
-            className={`status-pill ${boolField(runtime, "ok") ? "ok" : "danger"}`}
-          >
-            {boolField(runtime, "ok") ? "Online" : "Offline"}
+          <span className={`status-pill ${selected ? "ok" : "warning"}`}>
+            {selected ? "Session ready" : "No session"}
           </span>
           <span className="status-pill info">{model}</span>
           <button
@@ -369,52 +264,6 @@ export function ControlRoom({
           </button>
         </div>
       </section>
-
-      <div className="metric-grid compact-metrics">
-        {cards.map((card) => (
-          <section className={`metric-card ${card.tone ?? ""}`} key={card.key}>
-            <div className="metric-heading">
-              <div className="panel-title">{card.title}</div>
-              {card.tone && <span className={`status-dot ${card.tone}`} />}
-            </div>
-            <strong>{card.summary}</strong>
-            <p>{card.detail}</p>
-            {card.scope && (
-              <div className="metric-scope">
-                <span className="scope-badge">Applies to: {card.scope}</span>
-              </div>
-            )}
-            <div className="card-actions">
-              {card.section && (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={() => card.section && setSection(card.section)}
-                >
-                  Open
-                </button>
-              )}
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setDetails(card)}
-              >
-                Details
-              </button>
-              {!card.section &&
-                card.actions?.map((action) => (
-                  <button
-                    type="button"
-                    key={action.label}
-                    onClick={action.onClick}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-            </div>
-          </section>
-        ))}
-      </div>
 
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Control room sections">
@@ -448,9 +297,6 @@ export function ControlRoom({
                   </p>
                 </div>
                 <div className="hero-actions">
-                  <button type="button" onClick={() => void addProject()}>
-                    Save project
-                  </button>
                   <button
                     type="button"
                     disabled={!selected}
@@ -487,23 +333,27 @@ export function ControlRoom({
                   Pick a session from the sidebar to unlock session controls.
                 </div>
               )}
-              <div className="summary-grid">
-                <div>
-                  <span>Runtime</span>
-                  <strong>{cards[0].summary}</strong>
-                  <small>{cards[0].detail}</small>
+              {selected && (
+                <div className="summary-grid">
+                  <div>
+                    <span>Status</span>
+                    <strong>{status?.isStreaming ? "Running" : "Idle"}</strong>
+                    <small>{model}</small>
+                  </div>
+                  <div>
+                    <span>Messages</span>
+                    <strong>{selected.messageCount}</strong>
+                    <small>{shortTime(selected.modified)}</small>
+                  </div>
+                  <div>
+                    <span>Workspace</span>
+                    <strong>
+                      {selected.cwd.split("/").pop() || selected.cwd}
+                    </strong>
+                    <small>{selected.cwd}</small>
+                  </div>
                 </div>
-                <div>
-                  <span>Projects</span>
-                  <strong>{count(projects, "project")}</strong>
-                  <small>{cwd}</small>
-                </div>
-                <div>
-                  <span>Machines</span>
-                  <strong>{count(machines, "machine")}</strong>
-                  <small>Local web runtime</small>
-                </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -518,37 +368,32 @@ export function ControlRoom({
                   </h2>
                   <p>{gitDetail}</p>
                 </div>
-                <div className="hero-actions">
-                  <button type="button" onClick={() => setDetails(cards[2])}>
-                    View changes
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => void refresh()}
-                  >
-                    Refresh
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void refresh()}
+                >
+                  Refresh
+                </button>
               </div>
               {gitFiles.length > 0 ? (
                 <div className="compact-list git-file-list">
-                  {gitFiles.slice(0, 12).map((file) => (
+                  {gitFiles.slice(0, 40).map((file) => (
                     <div key={file} className="compact-row warning">
                       <span className="status-dot warning" />
                       <strong>{file}</strong>
                     </div>
                   ))}
-                  {gitFiles.length > 12 && (
+                  {gitFiles.length > 40 && (
                     <div className="empty-small">
-                      +{gitFiles.length - 12} more files in details.
+                      +{gitFiles.length - 40} more files.
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="empty-small">
                   {gitUnavailable
-                    ? "Git is unavailable in this runtime. Install git or use an image that includes it."
+                    ? "Install git or use an image that includes it."
                     : "No uncommitted changes reported."}
                 </div>
               )}
@@ -610,10 +455,7 @@ export function ControlRoom({
                     {activeToolNames.length} enabled
                     <span className="scope-badge">Applies to: Session</span>
                   </h2>
-                  <p>
-                    Toggle the selected session's tool access. Rows show source
-                    scope and conservative risk labels.
-                  </p>
+                  <p>Toggle the selected session's tool access.</p>
                 </div>
                 <div className="hero-actions">
                   <button
@@ -701,22 +543,21 @@ export function ControlRoom({
               </div>
               <div className="compact-list">
                 {skills.map((skill) => {
-                  const value = skill as DashboardValue;
-                  const filePath = textField(value, "filePath");
-                  const enabled = !boolField(value, "disableModelInvocation");
-                  const name = textField(value, "name") ?? "Unnamed skill";
+                  const filePath = textField(skill, "filePath");
+                  const enabled = !boolField(skill, "disableModelInvocation");
+                  const name = textField(skill, "name") ?? "Unnamed skill";
                   return (
                     <label
                       className="compact-row"
                       key={filePath ?? name}
-                      title={textField(value, "description")}
+                      title={textField(skill, "description")}
                     >
                       <input
                         type="checkbox"
                         disabled={!filePath || savingSkill === filePath}
                         checked={enabled}
                         onChange={(event) =>
-                          void setSkillInvocation(value, event.target.checked)
+                          void setSkillInvocation(skill, event.target.checked)
                         }
                       />
                       <strong>{name}</strong>
@@ -734,7 +575,7 @@ export function ControlRoom({
                           </span>
                           <span className="scope-badge">
                             {scopeLabel(
-                              textField(field(value, "sourceInfo"), "scope") ??
+                              textField(field(skill, "sourceInfo"), "scope") ??
                                 "workspace",
                             )}{" "}
                             scope
@@ -794,41 +635,6 @@ export function ControlRoom({
           )}
         </section>
       </div>
-
-      {details && (
-        <div className="details-backdrop">
-          <button
-            type="button"
-            className="details-scrim"
-            aria-label="Close details"
-            onClick={() => setDetails(null)}
-          />
-          <aside className="details-drawer">
-            <div className="drawer-head">
-              <div>
-                <div className="panel-title">Details</div>
-                <h2>{details.title}</h2>
-                <p>{details.summary}</p>
-              </div>
-              <button type="button" onClick={() => setDetails(null)}>
-                Close
-              </button>
-            </div>
-            <pre>{JSON.stringify(details.value ?? null, null, 2)}</pre>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard.writeText(
-                  JSON.stringify(details.value ?? null, null, 2),
-                );
-                onNotice("Details copied");
-              }}
-            >
-              Copy raw JSON
-            </button>
-          </aside>
-        </div>
-      )}
     </div>
   );
 }
