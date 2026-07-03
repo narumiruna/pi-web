@@ -304,7 +304,7 @@ const Message = memo(function Message({
       <div className={`message ${role} ${toneClass}`}>
         <details
           className={`tool-card result ${toneClass}`}
-          open={message.isError}
+          defaultOpen={message.isError}
         >
           <summary>
             Tool result{message.toolName ? ` · ${message.toolName}` : ""}
