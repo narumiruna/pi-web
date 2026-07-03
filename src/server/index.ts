@@ -1,7 +1,7 @@
 // biome-ignore-all lint: Pi SDK extension and websocket surfaces are intentionally dynamic here.
-import { spawn } from "node:child_process";
-import { existsSync, watch } from "node:fs";
+import { chmodSync, existsSync, watch } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -15,6 +15,7 @@ import {
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
+import * as pty from "node-pty";
 import { registerCompatRoutes } from "./compatRoutes.js";
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
@@ -22,6 +23,17 @@ import { readWorkspaceImage } from "./workspaceImages.js";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type Json = Record<string, unknown>;
+
+const nodeRequire = createRequire(import.meta.url);
+const PATH_ENV = process.platform === "win32" ? "Path" : "PATH";
+const PATH_SEPARATOR = process.platform === "win32" ? ";" : ":";
+const LOCAL_BIN_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "node_modules",
+  ".bin",
+);
 
 const PORT = Number(process.env.PORT ?? 30141);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -31,6 +43,37 @@ const DEFAULT_CWD = resolve(
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const sessionPathCache = new Map<string, string>();
 const liveSessions = new Map<string, WebSession>();
+
+function terminalEnv() {
+  const currentPath = process.env[PATH_ENV] ?? process.env.PATH ?? "";
+  return {
+    ...process.env,
+    [PATH_ENV]: [LOCAL_BIN_DIR, currentPath]
+      .filter(Boolean)
+      .join(PATH_SEPARATOR),
+    TERM: "xterm-256color",
+  };
+}
+
+function ensurePtyHelperExecutable() {
+  if (process.platform === "win32") return;
+  const nodePtyRoot = resolve(dirname(nodeRequire.resolve("node-pty")), "..");
+  for (const helper of [
+    join(nodePtyRoot, "build", "Release", "spawn-helper"),
+    join(
+      nodePtyRoot,
+      "prebuilds",
+      `${process.platform}-${process.arch}`,
+      "spawn-helper",
+    ),
+  ]) {
+    try {
+      if (existsSync(helper)) chmodSync(helper, 0o755);
+    } catch {
+      // node-pty will report the spawn failure if chmod is not allowed.
+    }
+  }
+}
 
 function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
@@ -785,31 +828,37 @@ app.get<{ Querystring: { cwd?: string } }>(
   (socket: any, request) => {
     const cwd = resolve(request.query.cwd || DEFAULT_CWD);
     const shell = process.env.PI_WEB_SHELL || "/bin/sh";
-    const child = spawn(shell, [], {
+    ensurePtyHelperExecutable();
+    const child = pty.spawn(shell, [], {
+      cols: 80,
+      rows: 24,
       cwd,
-      env: { ...process.env, TERM: "xterm-256color" },
-      stdio: "pipe",
+      env: terminalEnv(),
+      name: "xterm-256color",
     });
     const send = (event: Json) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(event));
     };
-    send({ type: "data", data: `$ ${shell} (${cwd})\n` });
-    child.stdout.on("data", (chunk) =>
-      send({ type: "data", data: chunk.toString() }),
-    );
-    child.stderr.on("data", (chunk) =>
-      send({ type: "data", data: chunk.toString() }),
-    );
-    child.on("close", (code) => send({ type: "exit", code }));
+    child.onData((data) => send({ type: "data", data }));
+    child.onExit(({ exitCode }) => send({ type: "exit", code: exitCode }));
     socket.on("message", (raw: Buffer | string) => {
       const text = raw.toString();
       try {
         const msg = JSON.parse(text);
         if (msg.type === "input" && typeof msg.data === "string")
-          child.stdin.write(msg.data);
+          child.write(msg.data);
+        if (msg.type === "resize") {
+          const cols = Number(msg.cols);
+          const rows = Number(msg.rows);
+          if (Number.isFinite(cols) && Number.isFinite(rows))
+            child.resize(
+              Math.min(500, Math.max(2, Math.floor(cols))),
+              Math.min(200, Math.max(1, Math.floor(rows))),
+            );
+        }
         if (msg.type === "close") child.kill();
       } catch {
-        child.stdin.write(text);
+        child.write(text);
       }
     });
     socket.on("close", () => child.kill());
