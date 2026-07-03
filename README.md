@@ -15,7 +15,7 @@ npm install -g @narumitw/pi-web
 pi-web
 ```
 
-Open <http://127.0.0.1:30141>.
+Open the printed URL (defaults to <http://127.0.0.1:30141>; CLI uses the next free port if busy).
 
 Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-works/pi).
 
@@ -91,7 +91,7 @@ Compose sets `WORKSPACE_ROOT=/workspace` and mounts:
 
 Useful environment variables:
 
-- `HOST` / `PORT`: server bind host and port.
+- `HOST` / `PORT`: server bind host and port. CLI auto-falls back from 30141 only when PORT is not set.
 - `PI_WEB_CWD`: default workspace directory; falls back to `WORKSPACE_ROOT` then `process.cwd()`.
 - `PI_WEB_DATA_DIR`: project/machine/config storage directory; defaults to `~/.pi-web`.
 - `PI_WEB_CONFIG`: config JSON path override.

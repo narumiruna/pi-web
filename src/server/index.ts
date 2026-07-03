@@ -19,6 +19,7 @@ import * as pty from "node-pty";
 import { registerCompatRoutes } from "./compatRoutes.js";
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
+import { DEFAULT_PORT, isAddressInUse, portCandidates } from "./ports.js";
 import { readWorkspaceImage } from "./workspaceImages.js";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
@@ -35,8 +36,9 @@ const LOCAL_BIN_DIR = resolve(
   ".bin",
 );
 
-const PORT = Number(process.env.PORT ?? 30141);
+const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 const HOST = process.env.HOST ?? "127.0.0.1";
+const AUTO_PORT = process.env.PI_WEB_AUTO_PORT === "1";
 const DEFAULT_CWD = resolve(
   process.env.PI_WEB_CWD ?? process.env.WORKSPACE_ROOT ?? process.cwd(),
 );
@@ -894,4 +896,20 @@ if (existsSync(clientDist)) {
   app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
 }
 
-await app.listen({ port: PORT, host: HOST });
+async function listen() {
+  const candidates = portCandidates(PORT, AUTO_PORT);
+  for (const [index, port] of candidates.entries()) {
+    try {
+      const address = await app.listen({ port, host: HOST });
+      if (port !== PORT)
+        app.log.warn(`Port ${PORT} is in use; listening at ${address}`);
+      return;
+    } catch (error) {
+      if (!isAddressInUse(error) || index === candidates.length - 1)
+        throw error;
+      app.log.warn({ port }, "Port in use; trying next port");
+    }
+  }
+}
+
+await listen();
