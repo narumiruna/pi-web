@@ -4,6 +4,9 @@
   "description": "Local-first web UI for pi-coding-agent.",
   "license": "AGPL-3.0-only",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "pi-web": "./dist/server/cli.js"
   },
@@ -12,6 +15,7 @@
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite --host 0.0.0.0",
     "build": "tsc -p tsconfig.server.json && vite build",
+    "prepack": "npm run build",
     "start": "node dist/server/index.js",
     "lint": "biome ci .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",

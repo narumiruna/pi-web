@@ -33,12 +33,21 @@ npm start
 
 Open <http://127.0.0.1:30141>.
 
-CLI wrapper after build:
+CLI:
 
 ```bash
-node dist/server/cli.js --cwd /path/to/project --port 30141
-# or after npm link / global install
+mkdir example
+cd example
+pi-web
+# open the printed http://127.0.0.1:30141 URL
+```
+
+`pi-web` uses the current directory as the workspace unless `--cwd` is set.
+
+```bash
+npx @narumitw/pi-web
 pi-web --cwd /path/to/project --port 30141
+node dist/server/cli.js --cwd /path/to/project --port 30141
 ```
 
 ## Docker

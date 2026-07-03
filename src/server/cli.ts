@@ -15,6 +15,13 @@ if (args.includes("--help") || args.includes("-h")) {
 
 Usage: pi-web [--port 30141] [--hostname 127.0.0.1] [--cwd /path]
 
+Without --cwd, pi-web uses the current directory as the workspace.
+
+Examples:
+  mkdir example && cd example && pi-web
+  npx @narumitw/pi-web
+  pi-web --cwd /path/to/project --port 30141
+
 Commands: doctor, status, version`);
   process.exit(0);
 }
