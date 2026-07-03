@@ -9,10 +9,14 @@ export function appendTerminalOutput(
   chunk: string,
   maxChars = MAX_TERMINAL_OUTPUT_CHARS,
 ): string {
+  const limit = Number.isFinite(maxChars)
+    ? Math.max(0, Math.floor(maxChars))
+    : 0;
+  if (limit <= 0) return "";
   const next = current + chunk;
-  if (next.length <= maxChars) return next;
-  if (maxChars <= TRIMMED_TERMINAL_MARKER.length) return next.slice(-maxChars);
-  const keep = maxChars - TRIMMED_TERMINAL_MARKER.length;
+  if (next.length <= limit) return next;
+  if (limit <= TRIMMED_TERMINAL_MARKER.length) return next.slice(-limit);
+  const keep = limit - TRIMMED_TERMINAL_MARKER.length;
   const tail = next.slice(-keep);
   const lineStart = tail.indexOf("\n");
   return `${TRIMMED_TERMINAL_MARKER}${lineStart >= 0 ? tail.slice(lineStart + 1) : tail}`;

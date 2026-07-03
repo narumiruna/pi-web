@@ -36,5 +36,7 @@ describe("appendTerminalOutput", () => {
 
   it("never exceeds tiny custom limits", () => {
     expect(appendTerminalOutput("abcdef", "ghij", 4)).toBe("ghij");
+    expect(appendTerminalOutput("abcdef", "ghij", 0)).toBe("");
+    expect(appendTerminalOutput("abcdef", "ghij", Number.NaN)).toBe("");
   });
 });
