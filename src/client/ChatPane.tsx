@@ -300,12 +300,16 @@ const Message = memo(function Message({
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
   const images = imagesFromContent(message.content);
+  const [toolResultOpen, setToolResultOpen] = useState(
+    Boolean(message.isError),
+  );
   if (role === "toolResult") {
     return (
       <div className={`message ${role} ${toneClass}`}>
         <details
           className={`tool-card result ${toneClass}`}
-          open={message.isError}
+          open={toolResultOpen}
+          onToggle={(event) => setToolResultOpen(event.currentTarget.open)}
         >
           <summary>
             Tool result{message.toolName ? ` · ${message.toolName}` : ""}
