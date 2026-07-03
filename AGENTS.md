@@ -1,4 +1,2 @@
-- DO NOT EDIT `GOAL.md` DIRECTLY.
-- READ `GOAL.md`.
 - Use `just` from the repo root to discover commands; the default recipe runs `just --list`.
 - Strict: When touching a source file that exceeds 1000 lines or would exceed 1000 lines after the change, split it into multiple focused files first; do not add more code until it is split.
