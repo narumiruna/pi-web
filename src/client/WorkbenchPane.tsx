@@ -15,6 +15,10 @@ function draft(text: string) {
   window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
 }
 
+function isWorktreePath(cwd: string) {
+  return /(?:^|[\\/])worktrees(?:[\\/]|$)/.test(cwd);
+}
+
 export function WorkbenchPane({
   cwd,
   sessionId,
@@ -47,11 +51,14 @@ export function WorkbenchPane({
   }, [refresh]);
 
   async function save(task: Partial<Task>) {
-    await api(task.id ? `/api/tasks/${task.id}` : "/api/tasks", {
-      method: task.id ? "PATCH" : "POST",
-      body: JSON.stringify({ title, cwd, sessionId, ...task }),
+    const updating = Boolean(task.id);
+    await api(updating ? `/api/tasks/${task.id}` : "/api/tasks", {
+      method: updating ? "PATCH" : "POST",
+      body: JSON.stringify(
+        updating ? task : { title, cwd, sessionId, ...task },
+      ),
     });
-    setTitle("");
+    if (!updating) setTitle("");
     await refresh();
   }
 
@@ -155,7 +162,7 @@ export function WorkbenchPane({
           <button type="button" onClick={() => void createPr()}>
             Create draft PR
           </button>
-          {cwd.includes("/worktrees/") && (
+          {isWorktreePath(cwd) && (
             <button
               type="button"
               className="danger"
