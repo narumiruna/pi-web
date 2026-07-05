@@ -8,6 +8,7 @@ import {
   isValidSyncedSessionFile,
   parseSyncMessage,
   sanitizeSyncedStatusData,
+  sendOrReportSynced,
   stringArray,
 } from "./extensionSync.js";
 
@@ -142,13 +143,21 @@ describe("ExtensionSyncRegistry", () => {
 
   it("reports when a control event is not sent", () => {
     const registry = new ExtensionSyncRegistry();
+    const events: unknown[] = [];
     const session = registry.connect(
       { type: "hello", sessionId: "session-1", cwd: "/work" },
       () => false,
       "connection",
     );
+    session.on((event) => events.push(event));
 
-    expect(session.send({ type: "prompt", text: "hi" })).toBe(false);
+    expect(sendOrReportSynced(session, { type: "prompt", text: "hi" })).toBe(
+      false,
+    );
+    expect(events.at(-1)).toEqual({
+      type: "session_error",
+      message: "Pi extension disconnected",
+    });
   });
 
   it("evicts disconnected sessions after subscribers leave", () => {

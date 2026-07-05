@@ -247,6 +247,18 @@ export function stringArray(value: unknown) {
     : [];
 }
 
+export function sendOrReportSynced(
+  synced: ExtensionSyncedSession,
+  event: SyncJson,
+) {
+  if (synced.send(event)) return true;
+  synced.broadcast({
+    type: "session_error",
+    message: "Pi extension disconnected",
+  });
+  return false;
+}
+
 export function sendSyncedEvents(
   request: FastifyRequest,
   reply: FastifyReply,

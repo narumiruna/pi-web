@@ -139,7 +139,7 @@ export default function piWebExtension(pi: ExtensionAPI) {
     if (!WebSocketCtor)
       throw new Error("This Node.js runtime has no WebSocket");
     if (socket?.readyState === 0 || socket?.readyState === 1) {
-      sendHello(ctx);
+      sendHello(currentCtx ?? ctx);
       return;
     }
 
@@ -174,7 +174,7 @@ export default function piWebExtension(pi: ExtensionAPI) {
       timeout.unref?.();
 
       ws.addEventListener("open", () => {
-        sendHello(ctx);
+        sendHello(currentCtx ?? ctx);
         finish(resolvePromise);
       });
       ws.addEventListener("message", (event: any) => {

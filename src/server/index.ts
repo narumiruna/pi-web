@@ -20,6 +20,7 @@ import { registerCompatRoutes } from "./compatRoutes.js";
 import {
   ExtensionSyncRegistry,
   registerExtensionSyncRoutes,
+  sendOrReportSynced,
   sendSyncedEvents,
   stringArray,
 } from "./extensionSync.js";
@@ -516,7 +517,6 @@ app.get<{ Params: { id: string } }>(
     }
   },
 );
-
 app.post<{
   Params: { id: string };
   Body: {
@@ -532,7 +532,7 @@ app.post<{
     const synced = syncSessions.get(request.params.id);
     if (synced) {
       if (
-        !synced.send({
+        !sendOrReportSynced(synced, {
           type: "prompt",
           text,
           images: normalizeImages(request.body?.images),
@@ -560,7 +560,7 @@ app.post<{ Params: { id: string } }>(
     try {
       const synced = syncSessions.get(request.params.id);
       if (synced) {
-        if (!synced.send({ type: "abort" }))
+        if (!sendOrReportSynced(synced, { type: "abort" }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { aborted: true };
       }
@@ -580,7 +580,7 @@ app.post<{ Params: { id: string }; Body: { instructions?: string } }>(
       const synced = syncSessions.get(request.params.id);
       if (synced) {
         if (
-          !synced.send({
+          !sendOrReportSynced(synced, {
             type: "compact",
             instructions: request.body?.instructions,
           })
@@ -630,7 +630,7 @@ app.post<{ Params: { id: string }; Body: { toolNames?: string[] } }>(
       const toolNames = stringArray(request.body?.toolNames);
       const synced = syncSessions.get(request.params.id);
       if (synced) {
-        if (!synced.send({ type: "setTools", toolNames }))
+        if (!sendOrReportSynced(synced, { type: "setTools", toolNames }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { tools: toolNames };
       }
@@ -674,7 +674,7 @@ app.post<{
         .send({ error: "provider and modelId are required" });
     const synced = syncSessions.get(request.params.id);
     if (synced) {
-      if (!synced.send({ type: "setModel", provider, modelId }))
+      if (!sendOrReportSynced(synced, { type: "setModel", provider, modelId }))
         return reply.code(409).send({ error: "Pi extension disconnected" });
       return { status: synced.status() };
     }
@@ -696,7 +696,7 @@ app.post<{ Params: { id: string }; Body: { level?: string } }>(
       if (!level) return reply.code(400).send({ error: "level is required" });
       const synced = syncSessions.get(request.params.id);
       if (synced) {
-        if (!synced.send({ type: "setThinking", level }))
+        if (!sendOrReportSynced(synced, { type: "setThinking", level }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { status: synced.status() };
       }
