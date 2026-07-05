@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
@@ -172,10 +172,21 @@ export function isValidSyncedSessionFile(
     const file = realpathSync(sessionFile);
     if (!statSync(file).isFile()) return false;
     const path = relative(root, file);
-    return Boolean(path) && !path.startsWith("..") && !isAbsolute(path);
+    return (
+      Boolean(path) &&
+      path !== ".." &&
+      !path.startsWith(`..${sep}`) &&
+      !isAbsolute(path)
+    );
   } catch {
     return false;
   }
+}
+
+export function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 export function sendSyncedEvents(

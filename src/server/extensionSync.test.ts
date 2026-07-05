@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   ExtensionSyncRegistry,
   isValidSyncedSessionFile,
+  stringArray,
 } from "./extensionSync.js";
 
 function collect(events: unknown[]) {
@@ -154,16 +155,28 @@ describe("isValidSyncedSessionFile", () => {
   it("accepts existing files inside the agent directory only", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-web-agent-"));
     const sessions = join(root, "sessions");
+    const dotted = join(root, "..cache");
     await mkdir(sessions);
+    await mkdir(dotted);
     const inside = join(sessions, "session.jsonl");
+    const insideDotted = join(dotted, "session.jsonl");
     const outside = join(await mkdtemp(join(tmpdir(), "pi-web-outside-")), "x");
     await writeFile(inside, "", "utf8");
+    await writeFile(insideDotted, "", "utf8");
     await writeFile(outside, "", "utf8");
 
     expect(isValidSyncedSessionFile(inside, root)).toBe(true);
+    expect(isValidSyncedSessionFile(insideDotted, root)).toBe(true);
     expect(isValidSyncedSessionFile(outside, root)).toBe(false);
     expect(isValidSyncedSessionFile(join(root, "missing.jsonl"), root)).toBe(
       false,
     );
+  });
+});
+
+describe("stringArray", () => {
+  it("keeps only strings", () => {
+    expect(stringArray(["read", 1, "bash", null])).toEqual(["read", "bash"]);
+    expect(stringArray("read")).toEqual([]);
   });
 });

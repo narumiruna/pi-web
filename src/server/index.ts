@@ -21,6 +21,7 @@ import {
   ExtensionSyncRegistry,
   registerExtensionSyncRoutes,
   sendSyncedEvents,
+  stringArray,
 } from "./extensionSync.js";
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
@@ -626,15 +627,15 @@ app.post<{ Params: { id: string }; Body: { toolNames?: string[] } }>(
   "/api/sessions/:id/tools",
   async (request, reply) => {
     try {
+      const toolNames = stringArray(request.body?.toolNames);
       const synced = syncSessions.get(request.params.id);
       if (synced) {
-        const toolNames = request.body?.toolNames ?? [];
         if (!synced.send({ type: "setTools", toolNames }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { tools: toolNames };
       }
       const session = await getLiveSession(request.params.id);
-      session.inner.setActiveToolsByName(request.body?.toolNames ?? []);
+      session.inner.setActiveToolsByName(toolNames);
       return { tools: session.inner.getActiveToolNames() };
     } catch (error) {
       return reply.code(400).send(jsonError(error));
