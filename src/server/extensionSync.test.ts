@@ -6,6 +6,7 @@ import {
   ExtensionSyncRegistry,
   isLoopbackAddress,
   isValidSyncedSessionFile,
+  parseSyncMessage,
   sanitizeSyncedStatusData,
   stringArray,
 } from "./extensionSync.js";
@@ -180,6 +181,20 @@ describe("isValidSyncedSessionFile", () => {
     expect(isValidSyncedSessionFile(join(root, "missing.jsonl"), root)).toBe(
       false,
     );
+  });
+});
+
+describe("parseSyncMessage", () => {
+  it("requires an object with a string type", () => {
+    expect(parseSyncMessage('{"type":"status","status":{}}')).toEqual({
+      type: "status",
+      status: {},
+    });
+    expect(() => parseSyncMessage("null")).toThrow(
+      "Invalid pi-web sync message",
+    );
+    expect(() => parseSyncMessage("[]")).toThrow("Invalid pi-web sync message");
+    expect(() => parseSyncMessage("{}")).toThrow("Invalid pi-web sync message");
   });
 });
 

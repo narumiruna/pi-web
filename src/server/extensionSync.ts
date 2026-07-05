@@ -143,7 +143,7 @@ export function registerExtensionSyncRoutes(
 
       socket.on("message", (raw: Buffer | string) => {
         try {
-          const message = JSON.parse(raw.toString()) as SyncJson;
+          const message = parseSyncMessage(raw);
           if (message.type === "hello") {
             const synced = registry.connect(message, send, connection);
             sessionId = synced.id;
@@ -169,6 +169,14 @@ export function registerExtensionSyncRoutes(
       });
     },
   );
+}
+
+export function parseSyncMessage(raw: Buffer | string) {
+  const message = JSON.parse(raw.toString());
+  if (!isRecord(message) || typeof message.type !== "string") {
+    throw new Error("Invalid pi-web sync message");
+  }
+  return message;
 }
 
 export function sanitizeSyncedStatusData(
