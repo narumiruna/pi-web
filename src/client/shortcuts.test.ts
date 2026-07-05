@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shortcutKey } from "./shortcuts";
+import { shortcutKey, shortcutMap } from "./shortcuts";
 
 type ShortcutInput = Parameters<typeof shortcutKey>[0];
 const target = (tagName: string) => ({ tagName }) as unknown as EventTarget;
@@ -27,5 +27,12 @@ describe("shortcutKey", () => {
         target: target("INPUT"),
       } satisfies ShortcutInput),
     ).toBeUndefined();
+  });
+
+  it("maps abort, sidebar, and tab-switch shortcuts", () => {
+    expect(shortcutMap["mod+."]).toBe("abortAgent");
+    expect(shortcutMap["mod+b"]).toBe("toggleSidebar");
+    expect(shortcutMap["mod+1"]).toBe("openChat");
+    expect(shortcutMap["mod+2"]).toBe("openTerminal");
   });
 });

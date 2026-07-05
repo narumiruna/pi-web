@@ -1,6 +1,7 @@
 // biome-ignore-all lint: Pi SDK/websocket wire data is dynamic in this MVP.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
@@ -10,7 +11,7 @@ import { FilePane } from "./FilePane";
 import { PreviewPane } from "./PreviewPane";
 import { ReplayPane } from "./ReplayPane";
 import { Sidebar } from "./Sidebar";
-import { shortcutAction } from "./shortcuts";
+import { shortcutAction, shortcutHelp } from "./shortcuts";
 import { TerminalPane } from "./TerminalPane";
 import type {
   AttachedImage,
@@ -79,7 +80,16 @@ function App() {
   const [permissionProfile, setPermissionProfile] = useState("ask");
   const [newWorktree, setNewWorktree] = useState(false);
   const [usageHistory, setUsageHistory] = useState<UsageSnapshot[]>([]);
+  const [sessionUsage, setSessionUsage] = useState<
+    Record<string, UsageSnapshot>
+  >({});
+  const [lastValidation, setLastValidation] =
+    useState<ValidationSummary | null>(null);
+  const [locateMessage, setLocateMessage] = useState<number | null>(null);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [helpQuery, setHelpQuery] = useState("");
+  const helpReturnFocus = useRef<HTMLElement | null>(null);
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
@@ -154,19 +164,11 @@ function App() {
       eventsRef.current = es;
       es.onmessage = (message) => {
         const event = JSON.parse(message.data);
-        if (event.type === "connected") {
+        if (event.type === "connected" || event.type === "status") {
           setStatus(event.status);
-          setUsageHistory((value) => [
-            ...value.slice(-99),
-            usageFromStatus(event.status),
-          ]);
-          setRunning(Boolean(event.status?.isStreaming));
-        } else if (event.type === "status") {
-          setStatus(event.status);
-          setUsageHistory((value) => [
-            ...value.slice(-99),
-            usageFromStatus(event.status),
-          ]);
+          const snapshot = usageFromStatus(event.status);
+          setUsageHistory((value) => [...value.slice(-99), snapshot]);
+          setSessionUsage((value) => ({ ...value, [id]: snapshot }));
           setRunning(Boolean(event.status?.isStreaming));
         } else if (event.type === "agent_start") {
           setRunning(true);
@@ -242,7 +244,9 @@ function App() {
     void api<{ profile: string }>("/api/permissions")
       .then((settings) => setPermissionProfile(settings.profile))
       .catch(() => undefined);
-    void loadModels().catch((error) => setNotice(error.message));
+    void loadModels().catch((error) =>
+      setNotice(`${error.message} — open Diagnostics to troubleshoot`),
+    );
     return () => eventsRef.current?.close();
   }, [loadSessions, loadModels]);
 
@@ -261,15 +265,31 @@ function App() {
       if (!action) return;
       event.preventDefault();
       if (action === "newSession") void newSession();
-      if (action === "focusPrompt")
+      if (action === "focusPrompt") {
+        setTab("chat");
         window.dispatchEvent(new Event("pi-web:focus-prompt"));
+      }
+      if (action === "openChat") setTab("chat");
+      if (action === "openTerminal") setTab("terminal");
       if (action === "openDiff") setTab("diff");
       if (action === "openValidation") setTab("validation");
+      if (action === "abortAgent") void abortAgent();
+      if (action === "toggleSidebar") setSidebarHidden((value) => !value);
       if (action === "toggleHelp") setHelpOpen((value) => !value);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
+
+  useEffect(() => {
+    if (helpOpen) {
+      helpReturnFocus.current = document.activeElement as HTMLElement | null;
+      return;
+    }
+    setHelpQuery("");
+    helpReturnFocus.current?.focus?.();
+    helpReturnFocus.current = null;
+  }, [helpOpen]);
 
   useEffect(() => {
     if (!selected) return;
@@ -349,6 +369,32 @@ function App() {
     setSelected(data.session);
     setStatus(data.status);
     await loadSessions();
+  }
+
+  async function newWorktreeSession(title: string) {
+    const worktree = await api<{ cwd: string }>("/api/worktrees", {
+      method: "POST",
+      body: JSON.stringify({ cwd, title }),
+    });
+    const data = await api<{ session: SessionInfo; status: any }>(
+      "/api/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({ cwd: worktree.cwd, permissionProfile }),
+      },
+    );
+    setSelected(data.session);
+    setStatus(data.status);
+    await loadSessions();
+  }
+
+  async function abortAgent() {
+    if (!selectedId || !running) return;
+    await api(`/api/sessions/${selectedId}/abort`, {
+      method: "POST",
+      body: "{}",
+    });
+    setRunning(false);
   }
 
   async function ensureSession(): Promise<SessionInfo> {
@@ -475,7 +521,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarHidden ? "sidebar-hidden" : ""}`}>
       <Sidebar
         cwd={cwd}
         sessions={sessions}
@@ -496,9 +542,17 @@ function App() {
         newWorktree={newWorktree}
         onNewWorktree={setNewWorktree}
         onSelectSession={setSelected}
+        onSelectSearchResult={(session, messageIndex) => {
+          setSelected(session);
+          setLocateMessage(messageIndex);
+        }}
         onDeleteSession={requestSessionDelete}
         onFilePath={setFilePath}
         onOpenFile={(entry) => void openFile(entry)}
+        usageLabelFor={(id) => {
+          const snapshot = sessionUsage[id];
+          return snapshot ? `$${snapshot.cost.toFixed(4)}` : "—";
+        }}
       />
 
       <main className="main">
@@ -580,6 +634,17 @@ function App() {
               {noticeTone(notice) === "warning" ? "⚠" : "•"}
             </span>
             <strong>{notice}</strong>
+            {notice.includes("Diagnostics") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("settings");
+                  setNotice("");
+                }}
+              >
+                Open diagnostics
+              </button>
+            )}
             <button type="button" onClick={() => setNotice("")}>
               Dismiss
             </button>
@@ -598,13 +663,10 @@ function App() {
             onOpenDiff={() => setTab("diff")}
             onOpenValidation={() => setTab("validation")}
             onSend={sendPrompt}
-            onAbort={async () =>
-              selectedId &&
-              api(`/api/sessions/${selectedId}/abort`, {
-                method: "POST",
-                body: "{}",
-              }).then(() => setRunning(false))
-            }
+            onAbort={abortAgent}
+            lastValidation={lastValidation}
+            locateMessage={locateMessage}
+            onLocated={() => setLocateMessage(null)}
             onCompact={async () =>
               selectedId &&
               api(`/api/sessions/${selectedId}/compact`, {
@@ -630,14 +692,22 @@ function App() {
           />
         )}
         {tab === "validation" && (
-          <ValidationPanel cwd={activeCwd} onNotice={setNotice} />
+          <ValidationPanel
+            cwd={activeCwd}
+            onNotice={setNotice}
+            onResult={setLastValidation}
+          />
         )}
         {tab === "preview" && <PreviewPane onNotice={setNotice} />}
         {tab === "workbench" && (
           <WorkbenchPane
             cwd={activeCwd}
             sessionId={selectedId}
+            sessions={sessions}
             onNotice={setNotice}
+            onOpenDiff={() => setTab("diff")}
+            onOpenValidation={() => setTab("validation")}
+            onOpenWorktreeSession={newWorktreeSession}
           />
         )}
         {tab === "evaluation" && <EvaluationPane onNotice={setNotice} />}
@@ -663,6 +733,10 @@ function App() {
               setSelected(null);
             }}
             onAuthChanged={loadModels}
+            onRulesSaved={async () => {
+              await loadCommands(selectedId);
+              await loadTools(selectedId);
+            }}
           />
         )}
         {tab === "file" && <FilePane file={file} />}
@@ -675,17 +749,42 @@ function App() {
           aria-label="Keyboard shortcuts"
         >
           <h2>Keyboard shortcuts</h2>
+          <input
+            className="input"
+            value={helpQuery}
+            onChange={(event) => setHelpQuery(event.target.value)}
+            placeholder="Search shortcuts and commands"
+          />
           <dl>
-            <dt>Ctrl/⌘ N</dt>
-            <dd>New session</dd>
-            <dt>Ctrl/⌘ K</dt>
-            <dd>Focus prompt</dd>
-            <dt>Ctrl/⌘ D</dt>
-            <dd>Open diff review</dd>
-            <dt>Ctrl/⌘ Shift T</dt>
-            <dd>Open validation</dd>
-            <dt>?</dt>
-            <dd>Toggle this help</dd>
+            {shortcutHelp
+              .filter(
+                ([keys, label]) =>
+                  !helpQuery.trim() ||
+                  `${keys} ${label}`
+                    .toLowerCase()
+                    .includes(helpQuery.trim().toLowerCase()),
+              )
+              .map(([keys, label]) => (
+                <div key={keys}>
+                  <dt>{keys}</dt>
+                  <dd>{label}</dd>
+                </div>
+              ))}
+            {commands
+              .filter(
+                (cmd) =>
+                  helpQuery.trim() &&
+                  String(cmd.name ?? "")
+                    .toLowerCase()
+                    .includes(helpQuery.trim().toLowerCase()),
+              )
+              .slice(0, 8)
+              .map((cmd) => (
+                <div key={`cmd-${cmd.name}`}>
+                  <dt>/{cmd.name}</dt>
+                  <dd>{cmd.description || "Session command"}</dd>
+                </div>
+              ))}
           </dl>
           <button type="button" onClick={() => setHelpOpen(false)}>
             Close

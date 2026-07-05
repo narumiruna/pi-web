@@ -36,9 +36,9 @@ Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-
 - Paste images directly into the chat box with `Ctrl+V`, preview attachments, and send them with the prompt.
 - Use a web terminal tab backed by a persistent local shell, save command snippets, and send recent output back to the chat draft.
 - Browse workspace files, read text files, preview images, and auto-refresh file changes.
-- Review git diffs, create checkpoints, rewind local changes, and run validation commands from package scripts.
+- Review git diffs with per-file and per-hunk revert, create checkpoints (including automatic pre-rewind safety checkpoints), rewind local changes, and run validation commands from package scripts.
 - Visualize agent task flow as Plan → Act → Verify, import GitHub issues, manage kanban task cards, and create draft PRs.
-- Preview localhost browser apps, attach screenshots, export/replay sessions, and run golden-task evaluations.
+- Preview localhost browser apps, attach screenshots, export sessions as HTML/JSON/Markdown with secret redaction, replay exports, and run golden-task evaluations (dry-run or full agent mode) with accept/reject review.
 - Use the Control room tab for auth/API keys, usage/cost estimates, diagnostics/troubleshooting, permissions safe mode, MCP/external tool config, repo rules, model switching, tool toggles, model-invoked skill toggles, and bookmarks.
 - Run in one Fastify process with a Vite/React client and a small compatibility layer for the routes this UI uses.
 
@@ -114,9 +114,14 @@ Useful environment variables:
 
 - `Ctrl/⌘+N`: new session
 - `Ctrl/⌘+K`: focus prompt
+- `Ctrl/⌘+1` / `Ctrl/⌘+2`: switch to chat / terminal tab
 - `Ctrl/⌘+D`: open diff review
 - `Ctrl/⌘+Shift+T`: open validation
-- `?`: shortcut help
+- `Ctrl/⌘+.`: abort the running agent
+- `Ctrl/⌘+B`: toggle sidebar
+- `Ctrl/⌘+Enter`: send prompt from the composer
+- `Ctrl/⌘+Shift+L`: send recent terminal output to chat (terminal tab)
+- `?`: searchable shortcut/command help
 
 ## Troubleshooting
 

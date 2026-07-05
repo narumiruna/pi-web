@@ -267,6 +267,56 @@
   display: grid;
   gap: 4px;
 }
+button.timeline-item {
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.hunk-list {
+  grid-column: 1 / -1;
+}
+.hunk-row {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.hunk-row pre {
+  max-height: 200px;
+  overflow: auto;
+  font-size: 12px;
+}
+.rules-editor {
+  display: grid;
+  gap: 8px;
+}
+.rules-editor textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--card);
+  color: inherit;
+}
+.usage-trend {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.usage-trend th,
+.usage-trend td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: right;
+}
+.message.located {
+  outline: 2px solid var(--accent, #22d3ee);
+  outline-offset: 2px;
+}
 .timeline-item small,
 .task-card small {
   color: var(--muted);
@@ -359,4 +409,11 @@
   .messages {
     padding: 14px;
   }
+}
+.app.sidebar-hidden {
+  grid-template-columns: 0 0 minmax(0, 1fr);
+}
+.app.sidebar-hidden .sidebar,
+.app.sidebar-hidden .sidebar-width-resizer {
+  display: none;
 }

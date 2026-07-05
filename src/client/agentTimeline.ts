@@ -28,9 +28,17 @@ function textFromContent(content: TimelineMessage["content"]): string {
     .join("\n");
 }
 
+export type ValidationSummary = {
+  command: string;
+  ok: boolean;
+  code: number | null;
+  finishedAt?: string;
+};
+
 export function buildAgentTimeline(
   messages: TimelineMessage[],
   running = false,
+  validation?: ValidationSummary | null,
 ): AgentTimelineItem[] {
   const user = messages.find((message) => message.role === "user");
   const plan = messages.find((message) =>
@@ -74,19 +82,24 @@ export function buildAgentTimeline(
             ? "running"
             : "pending",
     },
-    {
-      phase: "Verify",
-      title: verify ? "Verification mentioned" : "Verification pending",
-      detail: verify
-        ? textFromContent(verify.content).slice(0, 240)
-        : "Run validation before merging.",
-      state: verify
-        ? /(fail|error)/i.test(textFromContent(verify.content))
-          ? "failed"
-          : "done"
-        : running
-          ? "pending"
-          : "pending",
-    },
+    validation
+      ? {
+          phase: "Verify",
+          title: `Validation ${validation.ok ? "passed" : "failed"}`,
+          detail: `${validation.command} exited ${validation.code}`,
+          state: validation.ok ? "done" : "failed",
+        }
+      : {
+          phase: "Verify",
+          title: verify ? "Verification mentioned" : "Verification pending",
+          detail: verify
+            ? textFromContent(verify.content).slice(0, 240)
+            : "Run validation before merging.",
+          state: verify
+            ? /(fail|error)/i.test(textFromContent(verify.content))
+              ? "failed"
+              : "done"
+            : "pending",
+        },
   ];
 }

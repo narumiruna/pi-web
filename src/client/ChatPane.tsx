@@ -1,6 +1,6 @@
 // biome-ignore-all lint: Pi SDK wire data is dynamic in this MVP.
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { buildAgentTimeline } from "./agentTimeline";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildAgentTimeline, type ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
 import { getPastedImageFiles } from "./clipboardImages";
 import { linkifyText } from "./textLinks";
@@ -98,19 +98,82 @@ export function ChatPane(props: {
   tools: ToolInfo[];
   onTools: (tools: string[]) => Promise<void>;
   commands: any[];
+  lastValidation?: ValidationSummary | null;
+  locateMessage?: number | null;
+  onLocated?: () => void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
   useEffect(
     () => endRef.current?.scrollIntoView({ block: "end" }),
     [props.messages, props.streamText, props.streamThinking],
   );
+  const { locateMessage, onLocated } = props;
+  useEffect(() => {
+    if (locateMessage === null || locateMessage === undefined) return;
+    if (props.messages.length <= locateMessage) return;
+    const target = document.querySelector(
+      `[data-message-index="${locateMessage}"]`,
+    );
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    target.classList.add("located");
+    window.setTimeout(() => target.classList.remove("located"), 2400);
+    onLocated?.();
+  }, [locateMessage, onLocated, props.messages]);
   const activeToolNames = useMemo(
     () => props.tools.filter((tool) => tool.active).map((tool) => tool.name),
     [props.tools],
   );
   const empty =
     props.messages.length === 0 && !props.streamText && !props.streamThinking;
-  const timeline = buildAgentTimeline(props.messages, props.running);
+  const timeline = buildAgentTimeline(
+    props.messages,
+    props.running,
+    props.lastValidation,
+  );
+  const sessionId = props.sessionId;
+  const [bookmarked, setBookmarked] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (!sessionId) {
+      setBookmarked(new Set());
+      return;
+    }
+    void api<{ bookmarks: any[] }>("/api/bookmarks")
+      .then((data) =>
+        setBookmarked(
+          new Set(
+            data.bookmarks
+              .filter((item) => item.sessionId === sessionId)
+              .map((item) => Number(item.messageIndex))
+              .filter(Number.isInteger),
+          ),
+        ),
+      )
+      .catch(() => undefined);
+  }, [sessionId]);
+  const toggleBookmark = useCallback(
+    async (messageIndex: number, role: string, excerpt: string) => {
+      if (!sessionId) return;
+      const remove = bookmarked.has(messageIndex);
+      await api("/api/bookmarks", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId,
+          messageIndex,
+          role,
+          excerpt,
+          remove,
+        }),
+      });
+      setBookmarked((prev) => {
+        const next = new Set(prev);
+        if (remove) next.delete(messageIndex);
+        else next.add(messageIndex);
+        return next;
+      });
+    },
+    [sessionId, bookmarked],
+  );
 
   return (
     <div className="chat-tab">
@@ -210,13 +273,27 @@ export function ChatPane(props: {
         </div>
       </div>
       <section className="agent-timeline" aria-label="Plan Act Verify timeline">
-        {timeline.map((item) => (
-          <div className={`timeline-item ${item.state}`} key={item.phase}>
-            <strong>{item.phase}</strong>
-            <span>{item.title}</span>
-            <small>{item.detail}</small>
-          </div>
-        ))}
+        {timeline.map((item) =>
+          item.phase === "Verify" ? (
+            <button
+              type="button"
+              className={`timeline-item ${item.state}`}
+              key={item.phase}
+              title="Open validation panel"
+              onClick={props.onOpenValidation}
+            >
+              <strong>{item.phase}</strong>
+              <span>{item.title}</span>
+              <small>{item.detail}</small>
+            </button>
+          ) : (
+            <div className={`timeline-item ${item.state}`} key={item.phase}>
+              <strong>{item.phase}</strong>
+              <span>{item.title}</span>
+              <small>{item.detail}</small>
+            </div>
+          ),
+        )}
       </section>
       {empty ? (
         <EmptyState
@@ -232,6 +309,8 @@ export function ChatPane(props: {
             messages={props.messages}
             cwd={props.cwd}
             sessionId={props.sessionId}
+            bookmarked={bookmarked}
+            onToggleBookmark={toggleBookmark}
           />
           <StreamingMessage
             text={props.streamText}
@@ -316,10 +395,18 @@ const MessageList = memo(function MessageList({
   messages,
   cwd,
   sessionId,
+  bookmarked,
+  onToggleBookmark,
 }: {
   messages: any[];
   cwd: string;
   sessionId?: string;
+  bookmarked: Set<number>;
+  onToggleBookmark: (
+    messageIndex: number,
+    role: string,
+    excerpt: string,
+  ) => Promise<void>;
 }) {
   return messages.map((message, index) => (
     <Message
@@ -328,6 +415,8 @@ const MessageList = memo(function MessageList({
       cwd={cwd}
       sessionId={sessionId}
       messageIndex={index}
+      bookmarked={bookmarked.has(index)}
+      onToggleBookmark={onToggleBookmark}
     />
   ));
 });
@@ -341,25 +430,25 @@ const Message = memo(function Message({
   cwd,
   sessionId,
   messageIndex,
+  bookmarked,
+  onToggleBookmark,
 }: {
   message: any;
   cwd: string;
   sessionId?: string;
   messageIndex: number;
+  bookmarked: boolean;
+  onToggleBookmark: (
+    messageIndex: number,
+    role: string,
+    excerpt: string,
+  ) => Promise<void>;
 }) {
   const role = message.role ?? "event";
   const text = textFromContent(message.content);
   const bookmark = () =>
-    sessionId &&
-    api("/api/bookmarks", {
-      method: "POST",
-      body: JSON.stringify({
-        sessionId,
-        messageIndex,
-        role,
-        excerpt: text.slice(0, 180),
-      }),
-    });
+    sessionId && onToggleBookmark(messageIndex, role, text.slice(0, 180));
+  const bookmarkLabel = bookmarked ? "Bookmarked ★" : "Bookmark";
   const tone = message.isError ? "danger" : noticeTone(text);
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
@@ -369,7 +458,10 @@ const Message = memo(function Message({
   );
   if (role === "toolResult") {
     return (
-      <div className={`message ${role} ${toneClass}`}>
+      <div
+        className={`message ${role} ${toneClass}`}
+        data-message-index={messageIndex}
+      >
         <details
           className={`tool-card result ${toneClass}`}
           open={toolResultOpen}
@@ -401,7 +493,7 @@ const Message = memo(function Message({
             )}
             {sessionId && (
               <button type="button" onClick={() => void bookmark()}>
-                Bookmark
+                {bookmarkLabel}
               </button>
             )}
           </div>
@@ -411,7 +503,10 @@ const Message = memo(function Message({
     );
   }
   return (
-    <div className={`message ${role} ${toneClass}`}>
+    <div
+      className={`message ${role} ${toneClass}`}
+      data-message-index={messageIndex}
+    >
       <div className="role">
         {role}
         {message.toolName ? ` · ${message.toolName}` : ""}
@@ -427,7 +522,7 @@ const Message = memo(function Message({
       <MessageContent content={message.content} cwd={cwd} />
       {sessionId && (
         <button type="button" className="link" onClick={() => void bookmark()}>
-          Bookmark
+          {bookmarkLabel}
         </button>
       )}
       {nextStep && <div className="next-step">{nextStep}</div>}
@@ -631,7 +726,9 @@ function Composer({
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
+          const modEnter =
+            event.key === "Enter" && (event.metaKey || event.ctrlKey);
+          if (modEnter || (event.key === "Enter" && !event.shiftKey)) {
             event.preventDefault();
             void submit(running ? "steer" : undefined);
           }

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
+import { splitPatchIntoHunks } from "./diffHunks";
 
 type DiffFile = { status: string; path: string };
 type GitDiff = {
@@ -49,6 +50,16 @@ export function DiffPane({
     await refresh();
   }
 
+  async function revertHunk(path: string, header: string, patch: string) {
+    if (!confirm(`Revert hunk ${header} in ${path}?`)) return;
+    await api("/api/git/revert", {
+      method: "POST",
+      body: JSON.stringify({ cwd, patch }),
+    });
+    onNotice(`Reverted hunk in ${path}`);
+    await refresh();
+  }
+
   async function checkpoint() {
     await api("/api/checkpoints", {
       method: "POST",
@@ -80,6 +91,13 @@ export function DiffPane({
   }
 
   const files = diff?.files ?? [];
+  const hunksByPath = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof splitPatchIntoHunks>>();
+    for (const hunk of splitPatchIntoHunks(diff?.patch ?? "")) {
+      map.set(hunk.path, [...(map.get(hunk.path) ?? []), hunk]);
+    }
+    return map;
+  }, [diff?.patch]);
   return (
     <div className="tool-pane diff-pane">
       <section className="panel">
@@ -106,29 +124,55 @@ export function DiffPane({
           </div>
         </div>
         <div className="compact-list">
-          {files.map((file) => (
-            <div className="compact-row" key={file.path}>
-              <strong>
-                {file.status} {file.path}
-              </strong>
-              <span>{reviewed.has(file.path) ? "reviewed" : "pending"}</span>
-              <div className="row-actions">
-                <button
-                  type="button"
-                  onClick={() => setReviewed(new Set(reviewed).add(file.path))}
-                >
-                  Accept
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  onClick={() => void revert(file.path)}
-                >
-                  Revert
-                </button>
+          {files.map((file) => {
+            const hunks = hunksByPath.get(file.path) ?? [];
+            return (
+              <div className="compact-row diff-file-row" key={file.path}>
+                <strong>
+                  {file.status} {file.path}
+                </strong>
+                <span>{reviewed.has(file.path) ? "reviewed" : "pending"}</span>
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReviewed(new Set(reviewed).add(file.path))
+                    }
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void revert(file.path)}
+                  >
+                    Revert
+                  </button>
+                </div>
+                {hunks.length > 0 && (
+                  <details className="hunk-list">
+                    <summary>
+                      {hunks.length} hunk{hunks.length === 1 ? "" : "s"}
+                    </summary>
+                    {hunks.map((hunk) => (
+                      <div className="hunk-row" key={hunk.header + hunk.path}>
+                        <pre>{hunk.patch}</pre>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() =>
+                            void revertHunk(hunk.path, hunk.header, hunk.patch)
+                          }
+                        >
+                          Revert hunk
+                        </button>
+                      </div>
+                    ))}
+                  </details>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
           {files.length === 0 && (
             <div className="empty-small">No working tree changes.</div>
           )}
