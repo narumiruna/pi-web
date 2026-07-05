@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import type { SessionInfo } from "./types";
 
 type Task = {
   id: string;
@@ -17,15 +18,24 @@ function draft(text: string) {
 export function WorkbenchPane({
   cwd,
   sessionId,
+  sessions,
   onNotice,
+  onOpenDiff,
+  onOpenValidation,
+  onOpenWorktreeSession,
 }: {
   cwd: string;
   sessionId?: string;
+  sessions: SessionInfo[];
   onNotice: (message: string) => void;
+  onOpenDiff: () => void;
+  onOpenValidation: () => void;
+  onOpenWorktreeSession: (title: string) => Promise<void>;
 }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
   const [issue, setIssue] = useState("");
+  const [issueWorktree, setIssueWorktree] = useState(false);
 
   const refresh = useCallback(async () => {
     const data = await api<{ tasks: Task[] }>("/api/tasks");
@@ -46,15 +56,29 @@ export function WorkbenchPane({
   }
 
   async function importIssue() {
-    const payload = await api<{ prompt: string; title: string }>(
-      "/api/issues/import",
-      {
-        method: "POST",
-        body: JSON.stringify({ cwd, issue }),
-      },
-    );
+    const payload = await api<{
+      prompt: string;
+      title: string;
+      fallback?: boolean;
+      error?: string;
+    }>("/api/issues/import", {
+      method: "POST",
+      body: JSON.stringify({ cwd, issue }),
+    });
     draft(payload.prompt);
+    await save({ title: payload.title, status: "todo" });
     setTitle(payload.title);
+    if (payload.fallback) {
+      onNotice(
+        `gh unavailable (${payload.error ?? "not installed"}); created prompt draft and task card only`,
+      );
+      return;
+    }
+    if (issueWorktree) {
+      await onOpenWorktreeSession(payload.title);
+      onNotice("Issue imported; worktree session created");
+      return;
+    }
     onNotice("Issue imported to chat draft");
   }
 
@@ -84,6 +108,13 @@ export function WorkbenchPane({
     onNotice(result.url || "Draft PR created");
   }
 
+  function sessionMissing(task: Task) {
+    return Boolean(
+      task.sessionId &&
+        !sessions.some((session) => session.id === task.sessionId),
+    );
+  }
+
   return (
     <div className="tool-pane workbench-pane">
       <section className="panel">
@@ -110,6 +141,14 @@ export function WorkbenchPane({
             onChange={(event) => setIssue(event.target.value)}
             placeholder="GitHub issue URL or #"
           />
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={issueWorktree}
+              onChange={(event) => setIssueWorktree(event.target.checked)}
+            />
+            Worktree session
+          </label>
           <button type="button" onClick={() => void importIssue()}>
             Import issue
           </button>
@@ -144,6 +183,21 @@ export function WorkbenchPane({
                 >
                   <strong>{task.title}</strong>
                   <small>{task.cwd || cwd}</small>
+                  {sessionMissing(task) && (
+                    <small className="warning">
+                      Linked session no longer exists
+                    </small>
+                  )}
+                  {status === "review" && (
+                    <div className="row-actions">
+                      <button type="button" onClick={onOpenDiff}>
+                        Diff & checkpoints
+                      </button>
+                      <button type="button" onClick={onOpenValidation}>
+                        Validation
+                      </button>
+                    </div>
+                  )}
                   <div className="row-actions">
                     {STATUSES.map(
                       (next) =>

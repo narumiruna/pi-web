@@ -27,4 +27,18 @@ describe("agent timeline", () => {
     ]);
     expect(timeline[1].state).toBe("failed");
   });
+
+  it("prefers the latest validation result for the Verify phase", () => {
+    const timeline = buildAgentTimeline([], false, {
+      command: "npm test",
+      ok: false,
+      code: 1,
+    });
+    expect(timeline[2]).toMatchObject({
+      phase: "Verify",
+      title: "Validation failed",
+      detail: "npm test exited 1",
+      state: "failed",
+    });
+  });
 });

@@ -1,13 +1,19 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  type CommandResult,
   createCheckpoint,
   createWorktree,
+  diagnostics,
   git,
   gitDiff,
+  importIssue,
   lintInstructionContent,
+  listBookmarks,
+  listCheckpoints,
+  listTasks,
   parseGoldenTask,
   parseIssueReference,
   permissionSettings,
@@ -15,11 +21,17 @@ import {
   readMcpConfig,
   redactSecrets,
   removeWorktree,
+  restoreMcpConfig,
   revertGitChange,
+  reviewEvaluation,
   rewindCheckpoint,
+  runGoldenTask,
   runValidation,
+  saveBookmark,
   saveInstructionFile,
   saveMcpServer,
+  saveTask,
+  searchSessionEntries,
   toolsForPermissionProfile,
   validationCommand,
 } from "./productCore.js";
@@ -132,6 +144,121 @@ describe("product core", () => {
     expect(toolsForPermissionProfile("safe", ["bash"])).toEqual([]);
     expect(toolsForPermissionProfile("full", ["bash"])).toEqual(["bash"]);
     expect(await permissionSettings("safe")).toMatchObject({ profile: "safe" });
+  });
+
+  it("reverts a single hunk via reverse patch", async () => {
+    const dir = await repo();
+    await writeFile(join(dir, "file.txt"), "two\n");
+
+    const diff = await gitDiff(dir);
+    expect(diff.patch).toContain("@@");
+    const result = await revertGitChange(dir, { patch: diff.patch });
+    expect(result).toMatchObject({ reverted: true, mode: "hunk" });
+    expect(await readFile(join(dir, "file.txt"), "utf8")).toBe("one\n");
+  });
+
+  it("creates a pre-rewind checkpoint before rewinding", async () => {
+    const dir = await repo();
+    const checkpoint = await createCheckpoint(dir, "s1");
+    await writeFile(join(dir, "file.txt"), "changed\n");
+
+    await rewindCheckpoint(checkpoint.id, { confirmDelete: true });
+    const labels = (await listCheckpoints({ cwd: dir })).map(
+      (meta) => meta.label,
+    );
+    expect(labels).toContain("pre-rewind");
+  });
+
+  it("falls back to a prompt-only draft when gh is unavailable", async () => {
+    const fail = async (): Promise<CommandResult> => ({
+      code: 1,
+      stdout: "",
+      stderr: "gh: command not found",
+      output: "gh: command not found",
+    });
+    const imported = await importIssue("#7", process.cwd(), fail);
+    expect(imported.fallback).toBe(true);
+    expect(imported.prompt).toContain("#7");
+
+    const ok = async (): Promise<CommandResult> => ({
+      code: 0,
+      stdout: JSON.stringify({ title: "T", body: "B", url: "u" }),
+      stderr: "",
+      output: "",
+    });
+    expect(await importIssue("#7", process.cwd(), ok)).toMatchObject({
+      title: "T",
+      fallback: false,
+    });
+  });
+
+  it("backs up and restores MCP config", async () => {
+    await saveMcpServer("first", { command: "echo" });
+    await saveMcpServer("second", { command: "cat" });
+    const restored = await restoreMcpConfig();
+    expect(Object.keys(restored.servers ?? {})).toEqual(["first"]);
+
+    await saveMcpServer("first", null);
+    expect(Object.keys((await readMcpConfig()).servers ?? {})).toEqual([]);
+  });
+
+  it("persists task cards and bookmarks across reloads", async () => {
+    const task = await saveTask({ title: "Ship it", status: "review" });
+    expect((await listTasks())[0]).toMatchObject({
+      id: task.id,
+      title: "Ship it",
+      status: "review",
+    });
+
+    await saveBookmark({ sessionId: "s1", messageIndex: 2, excerpt: "hello" });
+    expect(await listBookmarks()).toHaveLength(1);
+    await saveBookmark({ sessionId: "s1", messageIndex: 2, remove: true });
+    expect(await listBookmarks()).toHaveLength(0);
+  });
+
+  it("searches entries without mutating them and sorts diagnostics fail-first", async () => {
+    const entries = [
+      { message: { role: "user", content: "find the bug" }, timestamp: "t1" },
+      { message: { role: "assistant", content: "done" } },
+    ];
+    const snapshot = JSON.stringify(entries);
+    const results = searchSessionEntries("s1", entries, "bug", "t0");
+    expect(results).toMatchObject([{ sessionId: "s1", messageIndex: 0 }]);
+    expect(JSON.stringify(entries)).toBe(snapshot);
+    expect(searchSessionEntries("s1", entries, "")).toEqual([]);
+
+    const report = await diagnostics(await tempDir("pi-web-diag-"), {
+      HOME: "/nonexistent-home",
+    });
+    const rank = { fail: 0, warn: 1, pass: 2 } as const;
+    const ranks = report.items.map((item) => rank[item.status]);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(report.items.map((item) => item.name)).toContain("Auth file");
+  });
+
+  it("runs golden tasks with a mocked prompt runner and records review", async () => {
+    const fixture = join(process.cwd(), "docs", "golden-tasks", "_fixture.md");
+    await writeFile(fixture, "# Fixture\n\n## Prompt\nSay hi");
+    try {
+      const result = await runGoldenTask("_fixture.md", async () => ({
+        tokens: 12,
+        cost: 0.5,
+        sessionId: "eval-1",
+      }));
+      expect(result).toMatchObject({
+        mode: "agent",
+        tokens: 12,
+        cost: 0.5,
+        ok: true,
+      });
+      const reviewed = await reviewEvaluation(result.id, "accepted");
+      expect(reviewed.review).toBe("accepted");
+      await expect(reviewEvaluation(result.id, "bogus")).rejects.toThrow(
+        /review/,
+      );
+    } finally {
+      await rm(fixture, { force: true });
+    }
   });
 
   it("redacts exports and parses golden tasks", () => {

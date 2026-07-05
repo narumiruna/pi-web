@@ -24,7 +24,9 @@ import {
   readMcpConfig,
   removeWorktree,
   restoreInstructionFile,
+  restoreMcpConfig,
   revertGitChange,
+  reviewEvaluation,
   rewindCheckpoint,
   runGoldenTask,
   runProcess,
@@ -219,6 +221,25 @@ export function registerProductRoutes(app: FastifyInstance, deps: CompatDeps) {
       }
     },
   );
+  app.post("/api/mcp/restore", async (_request, reply) => {
+    try {
+      return { config: await restoreMcpConfig() };
+    } catch (error) {
+      return reply.code(400).send(jsonError(error));
+    }
+  });
+  app.delete<{ Body: { name?: string } }>(
+    "/api/mcp",
+    async (request, reply) => {
+      try {
+        if (!request.body?.name)
+          return reply.code(400).send({ error: "name is required" });
+        return { config: await saveMcpServer(request.body.name, null) };
+      } catch (error) {
+        return reply.code(400).send(jsonError(error));
+      }
+    },
+  );
   app.post<{ Body: { command?: string; args?: string[]; cwd?: string } }>(
     "/api/mcp/test",
     async (request, reply) => {
@@ -314,13 +335,44 @@ export function registerProductRoutes(app: FastifyInstance, deps: CompatDeps) {
   app.get("/api/golden-tasks", async () => ({
     tasks: await loadGoldenTasks(),
   }));
-  app.post<{ Body: { file?: string } }>(
+  app.post<{ Body: { file?: string; agent?: boolean } }>(
     "/api/evaluations/run",
     async (request, reply) => {
       try {
         if (!request.body?.file)
           return reply.code(400).send({ error: "file is required" });
-        return { result: await runGoldenTask(request.body.file) };
+        const promptRunner = request.body.agent
+          ? async (task: { prompt: string }, cwd: string) => {
+              const session = await deps.startSession(cwd);
+              await session.inner.prompt(task.prompt, { source: "rpc" });
+              const status = session.status();
+              return {
+                tokens:
+                  Number(status?.tokens?.input ?? 0) +
+                  Number(status?.tokens?.output ?? 0),
+                cost: Number(status?.cost ?? 0),
+                sessionId: String(status?.sessionId ?? ""),
+              };
+            }
+          : undefined;
+        return {
+          result: await runGoldenTask(request.body.file, promptRunner),
+        };
+      } catch (error) {
+        return reply.code(400).send(jsonError(error));
+      }
+    },
+  );
+  app.post<{ Params: { id: string }; Body: { review?: string } }>(
+    "/api/evaluations/:id/review",
+    async (request, reply) => {
+      try {
+        return {
+          result: await reviewEvaluation(
+            request.params.id,
+            request.body?.review ?? "",
+          ),
+        };
       } catch (error) {
         return reply.code(400).send(jsonError(error));
       }

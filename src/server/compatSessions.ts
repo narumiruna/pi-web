@@ -81,7 +81,12 @@ export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
             "Content-Disposition",
             `attachment; filename="${request.params.id}.${format}"`,
           )
-          .send(sessionExport(messages, format));
+          .send(
+            sessionExport(messages, format, {
+              tree: current.manager.getTree(),
+              status: await sessionState(deps, request.params.id),
+            }),
+          );
       }
       return reply
         .header("Content-Type", "text/html; charset=utf-8")

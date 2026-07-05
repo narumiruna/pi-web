@@ -26,12 +26,14 @@ type SidebarProps = {
   newWorktree: boolean;
   onNewWorktree: (value: boolean) => void;
   onSelectSession: (session: SessionInfo) => void;
+  onSelectSearchResult: (session: SessionInfo, messageIndex: number) => void;
   onDeleteSession: (
     session: SessionInfo,
     event?: MouseEvent<HTMLElement>,
   ) => void;
   onFilePath: (path: string) => void;
   onOpenFile: (entry: FileEntry) => void;
+  usageLabelFor: (sessionId: string) => string;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -88,15 +90,22 @@ export function Sidebar({
   newWorktree,
   onNewWorktree,
   onSelectSession,
+  onSelectSearchResult,
   onDeleteSession,
   onFilePath,
   onOpenFile,
+  usageLabelFor,
 }: SidebarProps) {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sessionFilter, setSessionFilter] = useState("");
   const [messageSearch, setMessageSearch] = useState("");
   const [messageResults, setMessageResults] = useState<
-    Array<{ sessionId: string; excerpt: string; role?: string }>
+    Array<{
+      sessionId: string;
+      excerpt: string;
+      role?: string;
+      messageIndex?: number;
+    }>
   >([]);
   const [pane, setPane] = useState<SidebarPane>("sessions");
   const sidebarRef = useRef<HTMLElement | null>(null);
@@ -125,7 +134,12 @@ export function Sidebar({
       return;
     }
     const data = await api<{
-      results: Array<{ sessionId: string; excerpt: string; role?: string }>;
+      results: Array<{
+        sessionId: string;
+        excerpt: string;
+        role?: string;
+        messageIndex?: number;
+      }>;
     }>(`/api/search/sessions?q=${encodeURIComponent(messageSearch)}`);
     setMessageResults(data.results);
   }
@@ -279,9 +293,12 @@ export function Sidebar({
                     <button
                       type="button"
                       className="session"
-                      key={`${result.sessionId}-${result.excerpt}`}
+                      key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
                       disabled={!session}
-                      onClick={() => session && onSelectSession(session)}
+                      onClick={() =>
+                        session &&
+                        onSelectSearchResult(session, result.messageIndex ?? 0)
+                      }
                     >
                       <span className="session-heading">
                         <span>{result.role ?? "message"}</span>
@@ -318,7 +335,8 @@ export function Sidebar({
                       <small>{session.cwd}</small>
                       <span className="session-meta">
                         {formatRelativeTime(session.modified)} ·{" "}
-                        {session.messageCount} msgs · usage —
+                        {session.messageCount} msgs · usage{" "}
+                        {usageLabelFor(session.id)}
                       </span>
                     </button>
                     <button

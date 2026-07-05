@@ -6,8 +6,11 @@ type EvaluationResult = {
   id: string;
   task: string;
   ok: boolean;
+  mode?: string;
   durationMs: number;
   cost?: number;
+  tokens?: number;
+  review?: string;
 };
 
 export function EvaluationPane({
@@ -17,6 +20,8 @@ export function EvaluationPane({
 }) {
   const [tasks, setTasks] = useState<GoldenTask[]>([]);
   const [results, setResults] = useState<EvaluationResult[]>([]);
+  const [agentMode, setAgentMode] = useState(false);
+  const [runningFile, setRunningFile] = useState("");
 
   const refresh = useCallback(async () => {
     const [taskData, resultData] = await Promise.all([
@@ -32,14 +37,27 @@ export function EvaluationPane({
   }, [refresh]);
 
   async function run(file: string) {
-    const data = await api<{ result: EvaluationResult }>(
-      "/api/evaluations/run",
-      {
-        method: "POST",
-        body: JSON.stringify({ file }),
-      },
-    );
-    onNotice(`Evaluation ${data.result.ok ? "passed" : "failed"}`);
+    setRunningFile(file);
+    try {
+      const data = await api<{ result: EvaluationResult }>(
+        "/api/evaluations/run",
+        {
+          method: "POST",
+          body: JSON.stringify({ file, agent: agentMode }),
+        },
+      );
+      onNotice(`Evaluation ${data.result.ok ? "passed" : "failed"}`);
+      await refresh();
+    } finally {
+      setRunningFile("");
+    }
+  }
+
+  async function review(id: string, verdict: "accepted" | "rejected") {
+    await api(`/api/evaluations/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify({ review: verdict }),
+    });
     await refresh();
   }
 
@@ -51,18 +69,30 @@ export function EvaluationPane({
             <div className="panel-title">Golden tasks</div>
             <h2>Agent quality evaluation</h2>
             <p>
-              Runs each task's verification command and records
-              pass/fail/cost/time.
+              Dry runs only execute the verification command; agent runs also
+              send the prompt to a fresh session and record tokens/cost.
             </p>
           </div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={agentMode}
+              onChange={(event) => setAgentMode(event.target.checked)}
+            />
+            Run with agent (slower, costs tokens)
+          </label>
         </div>
         <div className="compact-list">
           {tasks.map((task) => (
             <div className="compact-row" key={task.file}>
               <strong>{task.title}</strong>
               <span>{task.file}</span>
-              <button type="button" onClick={() => void run(task.file)}>
-                Run
+              <button
+                type="button"
+                disabled={Boolean(runningFile)}
+                onClick={() => void run(task.file)}
+              >
+                {runningFile === task.file ? "Running…" : "Run"}
               </button>
             </div>
           ))}
@@ -78,17 +108,37 @@ export function EvaluationPane({
             >
               <strong>{result.task}</strong>
               <span>
-                {result.ok ? "pass" : "fail"} · {result.durationMs}ms · $
-                {result.cost ?? 0}
+                {result.ok ? "pass" : "fail"} · {result.mode ?? "dry-run"} ·{" "}
+                {result.durationMs}ms · ${result.cost ?? 0} ·{" "}
+                {result.tokens ?? 0} tokens
+                {result.review ? ` · ${result.review}` : ""}
               </span>
-              <button
-                type="button"
-                onClick={() =>
-                  navigator.clipboard.writeText(JSON.stringify(result, null, 2))
-                }
-              >
-                Export JSON
-              </button>
+              <div className="row-actions">
+                <button
+                  type="button"
+                  disabled={result.review === "accepted"}
+                  onClick={() => void review(result.id, "accepted")}
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  disabled={result.review === "rejected"}
+                  onClick={() => void review(result.id, "rejected")}
+                >
+                  Reject
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      JSON.stringify(result, null, 2),
+                    )
+                  }
+                >
+                  Export JSON
+                </button>
+              </div>
             </div>
           ))}
           {results.length === 0 && (

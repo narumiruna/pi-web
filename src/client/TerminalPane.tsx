@@ -78,8 +78,7 @@ export function TerminalPane({
     setSnippetCommand("");
   }
 
-  function sendToChat(lines = 80) {
-    const text = buffer.current.slice(-lines).join("\n");
+  function sendTextToChat(text: string) {
     if (!text.trim()) return;
     if (
       hasSecretLikeText(text) &&
@@ -87,6 +86,14 @@ export function TerminalPane({
     )
       return;
     draft(`Terminal output from ${cwd}:\n\n${text}`);
+  }
+
+  function sendToChat(lines = 80) {
+    sendTextToChat(buffer.current.slice(-lines).join("\n"));
+  }
+
+  function sendSelectionToChat() {
+    sendTextToChat(terminal.current?.getSelection() ?? "");
   }
 
   function run(command: string) {
@@ -108,6 +115,18 @@ export function TerminalPane({
     terminal.current = term;
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+    term.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type === "keydown" &&
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "l"
+      ) {
+        sendToChat(80);
+        return false;
+      }
+      return true;
+    });
     term.open(host);
 
     const protocol = location.protocol === "https:" ? "wss" : "ws";
@@ -176,8 +195,15 @@ export function TerminalPane({
         </div>
       </header>
       <div className="terminal-toolbar">
-        <button type="button" onClick={() => sendToChat(80)}>
+        <button
+          type="button"
+          title="Ctrl/⌘ Shift L"
+          onClick={() => sendToChat(80)}
+        >
           Send last 80 lines to chat
+        </button>
+        <button type="button" onClick={sendSelectionToChat}>
+          Send selection to chat
         </button>
         <input
           className="input"

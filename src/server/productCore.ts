@@ -1,7 +1,7 @@
 // biome-ignore-all lint: product feature helpers intentionally handle JSON-shaped local state.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, constants as fsConstants } from "node:fs";
 import {
   access,
   copyFile,
@@ -177,6 +177,7 @@ export type CheckpointMeta = {
   id: string;
   cwd: string;
   sessionId?: string;
+  label?: string;
   created: string;
   untracked: string[];
 };
@@ -209,6 +210,7 @@ async function gitUntracked(cwd: string) {
 export async function createCheckpoint(
   cwd: string,
   sessionId?: string,
+  label?: string,
 ): Promise<CheckpointMeta> {
   const root = resolve(cwd);
   const repo = await git(root, ["rev-parse", "--show-toplevel"]);
@@ -229,6 +231,7 @@ export async function createCheckpoint(
     id,
     cwd: actualCwd,
     sessionId,
+    label,
     created: new Date().toISOString(),
     untracked,
   };
@@ -285,6 +288,10 @@ export async function rewindCheckpoint(
   );
   if (createdAfter.length && !options.confirmDelete)
     return { rewound: false, requiresConfirmation: true, files: createdAfter };
+  if (meta.label !== "pre-rewind")
+    await createCheckpoint(meta.cwd, meta.sessionId, "pre-rewind").catch(
+      () => undefined,
+    );
   const reset = await git(meta.cwd, ["reset", "--hard"]);
   const clean = await git(meta.cwd, ["clean", "-fd"]);
   if (reset.code !== 0 || clean.code !== 0)
@@ -377,14 +384,24 @@ export async function importIssue(
     ],
     { cwd, timeoutMs: 30_000 },
   );
-  if (result.code !== 0)
-    throw new Error(result.output || "gh issue view failed");
+  if (result.code !== 0) {
+    // gh missing or unauthenticated: keep the flow alive with a prompt-only draft.
+    return {
+      title: `Issue #${ref.number}`,
+      body: "",
+      url: input,
+      prompt: `Implement GitHub issue #${ref.number} (${input}).\n\nThe gh CLI was unavailable, so read the issue yourself if possible.\n\nAcceptance criteria:\n- Resolve the issue completely.`,
+      fallback: true,
+      error: result.output.trim() || "gh issue view failed",
+    };
+  }
   const issue = JSON.parse(result.stdout || "{}");
   return {
     title: issue.title ?? `Issue #${ref.number}`,
     body: issue.body ?? "",
     url: issue.url ?? input,
     prompt: `Implement GitHub issue #${ref.number}: ${issue.title ?? ""}\n\n${issue.body ?? ""}\n\nAcceptance criteria:\n- Resolve the issue completely.`,
+    fallback: false,
   };
 }
 
@@ -430,11 +447,21 @@ function mcpPath() {
 export async function readMcpConfig() {
   return readJson<McpConfig>(mcpPath(), { servers: {} });
 }
-export async function saveMcpServer(name: string, server: JsonObject) {
+export async function saveMcpServer(name: string, server: JsonObject | null) {
   const config = await readMcpConfig();
-  config.servers = { ...(config.servers ?? {}), [name]: server };
+  if (existsSync(mcpPath())) await copyFile(mcpPath(), `${mcpPath()}.bak`);
+  const servers = { ...(config.servers ?? {}) };
+  if (server === null) delete servers[name];
+  else servers[name] = server;
+  config.servers = servers;
   await writeJson(mcpPath(), config);
   return config;
+}
+export async function restoreMcpConfig() {
+  const backup = `${mcpPath()}.bak`;
+  if (!existsSync(backup)) throw new Error("No MCP config backup found");
+  await copyFile(backup, mcpPath());
+  return readMcpConfig();
 }
 
 const instructionNames = new Set(["AGENTS.md", "CLAUDE.md", "README.md"]);
@@ -452,13 +479,20 @@ export async function discoverInstructionFiles(cwd: string) {
     ".pi/settings.json",
   ];
   return Promise.all(
-    candidates.map(async (path) => ({
-      path,
-      exists: existsSync(resolve(cwd, path)),
-      warnings: existsSync(resolve(cwd, path))
-        ? lintInstructionContent(await readFile(resolve(cwd, path), "utf8"))
-        : [],
-    })),
+    candidates.map(async (path) => {
+      const file = resolve(cwd, path);
+      const exists = existsSync(file);
+      return {
+        path,
+        exists,
+        modified: exists
+          ? (await stat(file).catch(() => undefined))?.mtime.toISOString()
+          : undefined,
+        warnings: exists
+          ? lintInstructionContent(await readFile(file, "utf8"))
+          : [],
+      };
+    }),
   );
 }
 export function lintInstructionContent(content: string) {
@@ -581,7 +615,11 @@ export function redactSecrets(text: string) {
   );
 }
 
-export function sessionExport(messages: any[], format: "json" | "md") {
+export function sessionExport(
+  messages: any[],
+  format: "json" | "md",
+  extras: { tree?: unknown; status?: unknown } = {},
+) {
   if (format === "json")
     return JSON.stringify(
       {
@@ -589,6 +627,12 @@ export function sessionExport(messages: any[], format: "json" | "md") {
           ...message,
           content: redactSecrets(JSON.stringify(message.content)),
         })),
+        tree: extras.tree
+          ? JSON.parse(redactSecrets(JSON.stringify(extras.tree)))
+          : undefined,
+        status: extras.status
+          ? JSON.parse(redactSecrets(JSON.stringify(extras.status)))
+          : undefined,
       },
       null,
       2,
@@ -601,25 +645,44 @@ export function sessionExport(messages: any[], format: "json" | "md") {
     .join("\n\n");
 }
 
-export async function searchSessions(query: string) {
+export function searchSessionEntries(
+  sessionId: string,
+  entries: any[],
+  query: string,
+  fallbackTimestamp = "",
+) {
   const q = query.trim().toLowerCase();
   if (!q) return [];
+  const results: any[] = [];
+  entries.forEach((entry: any, index: number) => {
+    const message = entry.message;
+    const text = textFromContent(message?.content);
+    if (text.toLowerCase().includes(q))
+      results.push({
+        sessionId,
+        messageIndex: index,
+        role: message?.role,
+        excerpt: text.slice(0, 240),
+        timestamp: entry.timestamp ?? fallbackTimestamp,
+      });
+  });
+  return results;
+}
+
+export async function searchSessions(query: string) {
+  if (!query.trim()) return [];
   const sessions = await SessionManager.listAll();
   const results: any[] = [];
   for (const session of sessions) {
     const manager = SessionManager.open(session.path);
-    manager.getEntries().forEach((entry: any, index: number) => {
-      const message = entry.message;
-      const text = textFromContent(message?.content);
-      if (text.toLowerCase().includes(q))
-        results.push({
-          sessionId: session.id,
-          messageIndex: index,
-          role: message.role,
-          excerpt: text.slice(0, 240),
-          timestamp: entry.timestamp ?? session.modified.toISOString(),
-        });
-    });
+    results.push(
+      ...searchSessionEntries(
+        session.id,
+        manager.getEntries(),
+        query,
+        session.modified.toISOString(),
+      ),
+    );
   }
   return results.slice(0, 50);
 }
@@ -650,13 +713,16 @@ export async function deleteTask(id: string) {
   return tasks;
 }
 
-export async function diagnostics(cwd: string) {
-  const items = [] as Array<{
-    name: string;
-    status: "pass" | "warn" | "fail";
-    detail: string;
-    fix?: string;
-  }>;
+const DIAGNOSTIC_ORDER = { fail: 0, warn: 1, pass: 2 } as const;
+export type DiagnosticItem = {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+  fix?: string;
+};
+
+export async function diagnostics(cwd: string, env = process.env) {
+  const items: DiagnosticItem[] = [];
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   items.push({
     name: "Node.js",
@@ -664,27 +730,43 @@ export async function diagnostics(cwd: string) {
     detail: process.versions.node,
     fix: "Use Node.js 22 or newer.",
   });
+  const agentDir =
+    env.PI_CODING_AGENT_DIR ?? join(env.HOME ?? "", ".pi", "agent");
   items.push({
     name: "Agent dir",
-    status: existsSync(
-      process.env.PI_CODING_AGENT_DIR ??
-        join(process.env.HOME ?? "", ".pi", "agent"),
-    )
-      ? "pass"
-      : "warn",
-    detail: process.env.PI_CODING_AGENT_DIR ?? "~/.pi/agent",
+    status: existsSync(agentDir) ? "pass" : "warn",
+    detail: agentDir,
+    fix: "Install pi-coding-agent or set PI_CODING_AGENT_DIR.",
+  });
+  const authFile = join(agentDir, "auth.json");
+  const hasAuthFile = existsSync(authFile);
+  const hasEnvKey = [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+  ].some((key) => Boolean(env[key]));
+  items.push({
+    name: "Auth file",
+    status: hasAuthFile ? "pass" : "warn",
+    detail: authFile,
+    fix: "Save an API key in Control room to create it.",
   });
   items.push({
     name: "API keys",
-    status: ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"].some(
-      (key) => Boolean(process.env[key]),
-    )
-      ? "pass"
-      : "warn",
-    detail: "Provider env keys",
+    status: hasEnvKey ? "pass" : "warn",
+    detail: "ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY env",
     fix: "Save an API key in Control room.",
   });
-  await access(cwd)
+  items.push({
+    name: "Models",
+    status: hasAuthFile || hasEnvKey ? "pass" : "fail",
+    detail:
+      hasAuthFile || hasEnvKey
+        ? "Provider credentials present"
+        : "No credentials; the model list will be empty",
+    fix: "Configure at least one provider API key.",
+  });
+  await access(cwd, fsConstants.W_OK)
     .then(() =>
       items.push({ name: "Workspace access", status: "pass", detail: cwd }),
     )
@@ -693,13 +775,16 @@ export async function diagnostics(cwd: string) {
         name: "Workspace access",
         status: "fail",
         detail: error.message,
+        fix: "Point cwd at a writable workspace directory.",
       }),
     );
   items.push({
     name: "Shell",
-    status: existsSync(process.env.PI_WEB_SHELL || "/bin/sh") ? "pass" : "warn",
-    detail: process.env.PI_WEB_SHELL || "/bin/sh",
+    status: existsSync(env.PI_WEB_SHELL || "/bin/sh") ? "pass" : "warn",
+    detail: env.PI_WEB_SHELL || "/bin/sh",
+    fix: "Set PI_WEB_SHELL to an existing shell binary.",
   });
+  items.sort((a, b) => DIAGNOSTIC_ORDER[a.status] - DIAGNOSTIC_ORDER[b.status]);
   return { items };
 }
 
@@ -792,7 +877,19 @@ export async function loadGoldenTasks() {
       })),
   );
 }
-export async function runGoldenTask(file: string) {
+export type GoldenPromptRunner = (
+  task: GoldenTask,
+  cwd: string,
+) => Promise<{ tokens?: number; cost?: number; sessionId?: string }>;
+
+function evaluationsPath() {
+  return join(productDataDir(), "evaluations.json");
+}
+
+export async function runGoldenTask(
+  file: string,
+  promptRunner?: GoldenPromptRunner,
+) {
   const taskPath = resolveInside(
     resolve(process.cwd(), "docs", "golden-tasks"),
     file,
@@ -800,6 +897,7 @@ export async function runGoldenTask(file: string) {
   const task = parseGoldenTask(await readFile(taskPath, "utf8"));
   const cwd = task.cwd ? resolve(process.cwd(), task.cwd) : process.cwd();
   const started = Date.now();
+  const agent = promptRunner ? await promptRunner(task, cwd) : undefined;
   const validation = task.command
     ? await runValidation(cwd, task.command)
     : {
@@ -812,17 +910,32 @@ export async function runGoldenTask(file: string) {
   const result = {
     id: randomUUID(),
     task: file,
+    mode: promptRunner ? "agent" : "dry-run",
     ok: validation.ok,
     code: validation.code,
     output: validation.output,
     durationMs: Date.now() - started,
-    cost: 0,
-    tokens: 0,
+    cost: agent?.cost ?? 0,
+    tokens: agent?.tokens ?? 0,
+    sessionId: agent?.sessionId,
+    review: "",
     created: new Date().toISOString(),
   };
-  const path = join(productDataDir(), "evaluations.json");
+  const path = evaluationsPath();
   await writeJson(path, [...(await readJson<any[]>(path, [])), result]);
   return result;
+}
+
+export async function reviewEvaluation(id: string, review: string) {
+  if (review !== "accepted" && review !== "rejected" && review !== "")
+    throw new Error("review must be accepted, rejected, or empty");
+  const path = evaluationsPath();
+  const results = await readJson<any[]>(path, []);
+  const target = results.find((item) => item.id === id);
+  if (!target) throw new Error("Evaluation result not found");
+  target.review = review;
+  await writeJson(path, results);
+  return target;
 }
 
 export async function tempRepo(prefix = "pi-web-") {

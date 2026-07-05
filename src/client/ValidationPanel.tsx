@@ -14,6 +14,7 @@ type ValidationResult = {
   code: number | null;
   output: string;
   ok: boolean;
+  finishedAt?: string;
 };
 
 function draft(text: string) {
@@ -23,9 +24,11 @@ function draft(text: string) {
 export function ValidationPanel({
   cwd,
   onNotice,
+  onResult,
 }: {
   cwd: string;
   onNotice: (message: string) => void;
+  onResult?: (result: ValidationResult) => void;
 }) {
   const [running, setRunning] = useState("");
   const [result, setResult] = useState<ValidationResult | null>(null);
@@ -38,6 +41,7 @@ export function ValidationPanel({
         body: JSON.stringify({ cwd, command }),
       });
       setResult(next);
+      onResult?.(next);
       onNotice(`${command} exited ${next.code}`);
     } finally {
       setRunning("");
