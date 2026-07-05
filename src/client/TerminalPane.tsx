@@ -2,82 +2,158 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  type CommandSnippet,
+  hasSecretLikeText,
+  parseSnippets,
+  trimTerminalBuffer,
+} from "./terminalHelpers";
+
+const SNIPPETS_KEY = "pi-web.terminal-snippets";
+
+function draft(text: string) {
+  window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
+}
 
 export function TerminalPane({ cwd }: { cwd: string }) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
+  const terminal = useRef<Terminal | null>(null);
+  const ws = useRef<WebSocket | null>(null);
+  const buffer = useRef<string[]>([]);
+  const [snippets, setSnippets] = useState<CommandSnippet[]>(() =>
+    parseSnippets(localStorage.getItem(SNIPPETS_KEY)),
+  );
+  const [snippetName, setSnippetName] = useState("");
+  const [snippetCommand, setSnippetCommand] = useState("");
+
+  function rememberSnippet() {
+    if (!snippetName.trim() || !snippetCommand.trim()) return;
+    const next = [
+      ...snippets.filter((item) => item.name !== snippetName.trim()),
+      { name: snippetName.trim(), command: snippetCommand },
+    ];
+    setSnippets(next);
+    localStorage.setItem(SNIPPETS_KEY, JSON.stringify(next));
+    setSnippetName("");
+    setSnippetCommand("");
+  }
+
+  function sendToChat(lines = 80) {
+    const text = buffer.current.slice(-lines).join("\n");
+    if (!text.trim()) return;
+    if (
+      hasSecretLikeText(text) &&
+      !confirm("Terminal output may contain a secret. Send anyway?")
+    )
+      return;
+    draft(`Terminal output from ${cwd}:\n\n${text}`);
+  }
+
+  function run(command: string) {
+    ws.current?.send(JSON.stringify({ type: "input", data: `${command}\r` }));
+  }
 
   useEffect(() => {
     const host = terminalRef.current;
     if (!host) return;
 
     let disposed = false;
-    const terminal = new Terminal({
+    const term = new Terminal({
       cursorBlink: true,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       fontSize: 13,
       scrollback: 5000,
-      theme: {
-        background: "#05070c",
-        foreground: "#d1fae5",
-      },
+      theme: { background: "#05070c", foreground: "#d1fae5" },
     });
+    terminal.current = term;
     const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(host);
+    term.loadAddon(fitAddon);
+    term.open(host);
 
     const protocol = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(
+    const socket = new WebSocket(
       `${protocol}://${location.host}/api/terminal?cwd=${encodeURIComponent(cwd)}`,
     );
+    ws.current = socket;
     const sendResize = () => {
       fitAddon.fit();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "resize",
-            cols: terminal.cols,
-            rows: terminal.rows,
-          }),
+      if (socket.readyState === WebSocket.OPEN)
+        socket.send(
+          JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
         );
-      }
     };
 
-    const input = terminal.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: "input", data }));
+    const input = term.onData((data) => {
+      if (socket.readyState === WebSocket.OPEN)
+        socket.send(JSON.stringify({ type: "input", data }));
     });
     const resizeObserver = new ResizeObserver(sendResize);
     resizeObserver.observe(host);
 
-    ws.onopen = () => {
+    socket.onopen = () => {
       sendResize();
-      terminal.focus();
+      term.focus();
     };
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === "data") terminal.write(msg.data);
+      if (msg.type === "data") {
+        term.write(msg.data);
+        buffer.current = trimTerminalBuffer([
+          ...buffer.current,
+          ...String(msg.data).split(/\r?\n/),
+        ]);
+      }
       if (msg.type === "exit")
-        terminal.write(`\r\n[process exited ${msg.code}]\r\n`);
+        term.write(`\r\n[process exited ${msg.code}]\r\n`);
     };
-    ws.onclose = () => {
-      if (!disposed) terminal.write("\r\n[terminal disconnected]\r\n");
+    socket.onclose = () => {
+      if (!disposed) term.write("\r\n[terminal disconnected]\r\n");
     };
 
     return () => {
       disposed = true;
       resizeObserver.disconnect();
       input.dispose();
-      ws.close();
-      terminal.dispose();
+      socket.close();
+      term.dispose();
+      ws.current = null;
+      terminal.current = null;
     };
   }, [cwd]);
 
   return (
-    <div
-      aria-label="Terminal"
-      className="terminal-tab terminal-shell"
-      ref={terminalRef}
-    />
+    <div className="terminal-tab">
+      <div className="terminal-toolbar">
+        <button type="button" onClick={() => sendToChat(80)}>
+          Send last 80 lines to chat
+        </button>
+        <input
+          className="input"
+          value={snippetName}
+          onChange={(event) => setSnippetName(event.target.value)}
+          placeholder="Snippet name"
+        />
+        <input
+          className="input"
+          value={snippetCommand}
+          onChange={(event) => setSnippetCommand(event.target.value)}
+          placeholder="Command"
+        />
+        <button type="button" onClick={rememberSnippet}>
+          Save snippet
+        </button>
+        {snippets.map((snippet) => (
+          <button
+            type="button"
+            key={snippet.name}
+            onClick={() => run(snippet.command)}
+          >
+            {snippet.name}
+          </button>
+        ))}
+      </div>
+      <div aria-label="Terminal" className="terminal-shell" ref={terminalRef} />
+    </div>
   );
 }

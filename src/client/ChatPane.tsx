@@ -1,5 +1,7 @@
 // biome-ignore-all lint: Pi SDK wire data is dynamic in this MVP.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { buildAgentTimeline } from "./agentTimeline";
+import { api } from "./api";
 import { getPastedImageFiles } from "./clipboardImages";
 import { linkifyText } from "./textLinks";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
@@ -77,8 +79,11 @@ export function ChatPane(props: {
   streamThinking: string;
   running: boolean;
   hasSession: boolean;
+  sessionId?: string;
   cwd: string;
   onOpenTerminal: () => void;
+  onOpenDiff: () => void;
+  onOpenValidation: () => void;
   onSend: (
     text: string,
     images?: AttachedImage[],
@@ -105,6 +110,7 @@ export function ChatPane(props: {
   );
   const empty =
     props.messages.length === 0 && !props.streamText && !props.streamThinking;
+  const timeline = buildAgentTimeline(props.messages, props.running);
 
   return (
     <div className="chat-tab">
@@ -140,6 +146,12 @@ export function ChatPane(props: {
           </select>
         </div>
         <div className="control-group action-controls">
+          <button type="button" onClick={props.onOpenDiff}>
+            Review diff
+          </button>
+          <button type="button" onClick={props.onOpenValidation}>
+            Validate
+          </button>
           <button onClick={() => void props.onCompact()}>Compact</button>
           {props.running && (
             <button className="danger" onClick={() => void props.onAbort()}>
@@ -197,6 +209,15 @@ export function ChatPane(props: {
           {props.running ? "Running" : "Idle"}
         </div>
       </div>
+      <section className="agent-timeline" aria-label="Plan Act Verify timeline">
+        {timeline.map((item) => (
+          <div className={`timeline-item ${item.state}`} key={item.phase}>
+            <strong>{item.phase}</strong>
+            <span>{item.title}</span>
+            <small>{item.detail}</small>
+          </div>
+        ))}
+      </section>
       {empty ? (
         <EmptyState
           hasSession={props.hasSession}
@@ -207,7 +228,11 @@ export function ChatPane(props: {
         />
       ) : (
         <div className="messages">
-          <MessageList messages={props.messages} cwd={props.cwd} />
+          <MessageList
+            messages={props.messages}
+            cwd={props.cwd}
+            sessionId={props.sessionId}
+          />
           <StreamingMessage
             text={props.streamText}
             thinking={props.streamThinking}
@@ -290,24 +315,51 @@ function EmptyState({
 const MessageList = memo(function MessageList({
   messages,
   cwd,
+  sessionId,
 }: {
   messages: any[];
   cwd: string;
+  sessionId?: string;
 }) {
   return messages.map((message, index) => (
-    <Message key={messageKey(message, index)} message={message} cwd={cwd} />
+    <Message
+      key={messageKey(message, index)}
+      message={message}
+      cwd={cwd}
+      sessionId={sessionId}
+      messageIndex={index}
+    />
   ));
 });
+
+function draft(text: string) {
+  window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
+}
 
 const Message = memo(function Message({
   message,
   cwd,
+  sessionId,
+  messageIndex,
 }: {
   message: any;
   cwd: string;
+  sessionId?: string;
+  messageIndex: number;
 }) {
   const role = message.role ?? "event";
   const text = textFromContent(message.content);
+  const bookmark = () =>
+    sessionId &&
+    api("/api/bookmarks", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId,
+        messageIndex,
+        role,
+        excerpt: text.slice(0, 180),
+      }),
+    });
   const tone = message.isError ? "danger" : noticeTone(text);
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
@@ -336,6 +388,23 @@ const Message = memo(function Message({
             />
           ))}
           <WorkspaceText text={text} cwd={cwd} />
+          <div className="row-actions">
+            {message.isError && (
+              <button
+                type="button"
+                onClick={() =>
+                  draft(`Tool failed: ${message.toolName ?? "tool"}\n\n${text}`)
+                }
+              >
+                Quote error
+              </button>
+            )}
+            {sessionId && (
+              <button type="button" onClick={() => void bookmark()}>
+                Bookmark
+              </button>
+            )}
+          </div>
           {nextStep && <div className="next-step">{nextStep}</div>}
         </details>
       </div>
@@ -356,6 +425,11 @@ const Message = memo(function Message({
         />
       ))}
       <MessageContent content={message.content} cwd={cwd} />
+      {sessionId && (
+        <button type="button" className="link" onClick={() => void bookmark()}>
+          Bookmark
+        </button>
+      )}
       {nextStep && <div className="next-step">{nextStep}</div>}
     </div>
   );
@@ -465,10 +539,35 @@ function Composer({
 }) {
   const [text, setText] = useState("");
   const [images, setImages] = useState<AttachedImage[]>([]);
+  const textInput = useRef<HTMLTextAreaElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const slashCommands = commands.filter(
     (cmd) => text.startsWith("/") && cmd.name?.includes(text.slice(1)),
   );
+
+  useEffect(() => {
+    const onDraft = (event: Event) => {
+      const detail = (event as CustomEvent<string>).detail;
+      if (typeof detail === "string")
+        setText((value) => `${value}${value ? "\n\n" : ""}${detail}`);
+      textInput.current?.focus();
+    };
+    const onAttach = (event: Event) => {
+      const detail = (event as CustomEvent<AttachedImage>).detail;
+      if (detail?.data && detail.mimeType)
+        setImages((value) => [...value, detail]);
+      textInput.current?.focus();
+    };
+    const onFocus = () => textInput.current?.focus();
+    window.addEventListener("pi-web:draft", onDraft);
+    window.addEventListener("pi-web:attach-image", onAttach);
+    window.addEventListener("pi-web:focus-prompt", onFocus);
+    return () => {
+      window.removeEventListener("pi-web:draft", onDraft);
+      window.removeEventListener("pi-web:attach-image", onAttach);
+      window.removeEventListener("pi-web:focus-prompt", onFocus);
+    };
+  }, []);
 
   async function attach(files: FileList | File[]) {
     const imageFiles = [...files].filter((file) =>
@@ -497,6 +596,7 @@ function Composer({
     await onSend(text, images, mode);
     setText("");
     setImages([]);
+    textInput.current?.focus();
   }
 
   return (
@@ -527,6 +627,7 @@ function Composer({
         </div>
       )}
       <textarea
+        ref={textInput}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {

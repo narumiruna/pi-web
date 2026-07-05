@@ -1,7 +1,6 @@
 // biome-ignore-all lint: Pi SDK extension and websocket surfaces are intentionally dynamic here.
-import { chmodSync, existsSync, watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -15,7 +14,6 @@ import {
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyReply } from "fastify";
-import * as pty from "node-pty";
 import { registerCompatRoutes } from "./compatRoutes.js";
 import {
   ExtensionSyncRegistry,
@@ -27,21 +25,13 @@ import {
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
 import { DEFAULT_PORT, isAddressInUse, portCandidates } from "./ports.js";
+import { createCheckpoint, toolsForPermissionProfile } from "./productCore.js";
+import { registerProductRoutes } from "./productRoutes.js";
+import { registerTerminalRoutes } from "./terminalRoutes.js";
 import { readWorkspaceImage } from "./workspaceImages.js";
 
 type LiveSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 type Json = Record<string, unknown>;
-
-const nodeRequire = createRequire(import.meta.url);
-const PATH_ENV = process.platform === "win32" ? "Path" : "PATH";
-const PATH_SEPARATOR = process.platform === "win32" ? ";" : ":";
-const LOCAL_BIN_DIR = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "..",
-  "node_modules",
-  ".bin",
-);
 
 const PORT = Number(process.env.PORT ?? DEFAULT_PORT);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -53,37 +43,6 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const sessionPathCache = new Map<string, string>();
 const liveSessions = new Map<string, WebSession>();
 const syncSessions = new ExtensionSyncRegistry();
-
-function terminalEnv() {
-  const currentPath = process.env[PATH_ENV] ?? process.env.PATH ?? "";
-  return {
-    ...process.env,
-    [PATH_ENV]: [currentPath, LOCAL_BIN_DIR]
-      .filter(Boolean)
-      .join(PATH_SEPARATOR),
-    TERM: "xterm-256color",
-  };
-}
-
-function ensurePtyHelperExecutable() {
-  if (process.platform === "win32") return;
-  const nodePtyRoot = resolve(dirname(nodeRequire.resolve("node-pty")), "..");
-  for (const helper of [
-    join(nodePtyRoot, "build", "Release", "spawn-helper"),
-    join(
-      nodePtyRoot,
-      "prebuilds",
-      `${process.platform}-${process.arch}`,
-      "spawn-helper",
-    ),
-  ]) {
-    try {
-      if (existsSync(helper)) chmodSync(helper, 0o755);
-    } catch {
-      // node-pty will report the spawn failure if chmod is not allowed.
-    }
-  }
-}
 
 function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
@@ -436,33 +395,32 @@ app.get("/api/sessions", async (_request, reply) => {
   }
 });
 
-app.post<{ Body: { cwd?: string; toolNames?: string[] } }>(
-  "/api/sessions",
-  async (request, reply) => {
-    try {
-      const cwd = resolve(request.body?.cwd || DEFAULT_CWD);
-      const session = await startSession(
-        cwd,
-        undefined,
-        request.body?.toolNames,
-      );
-      return {
-        session: {
-          id: session.id,
-          path: session.inner.sessionFile,
-          cwd: session.cwd,
-          created: new Date().toISOString(),
-          modified: new Date().toISOString(),
-          messageCount: 0,
-          firstMessage: "",
-        },
-        status: session.status(),
-      };
-    } catch (error) {
-      return reply.code(400).send(jsonError(error));
-    }
-  },
-);
+app.post<{
+  Body: { cwd?: string; toolNames?: string[]; permissionProfile?: string };
+}>("/api/sessions", async (request, reply) => {
+  try {
+    const cwd = resolve(request.body?.cwd || DEFAULT_CWD);
+    const toolNames = toolsForPermissionProfile(
+      request.body?.permissionProfile,
+      request.body?.toolNames,
+    );
+    const session = await startSession(cwd, undefined, toolNames);
+    return {
+      session: {
+        id: session.id,
+        path: session.inner.sessionFile,
+        cwd: session.cwd,
+        created: new Date().toISOString(),
+        modified: new Date().toISOString(),
+        messageCount: 0,
+        firstMessage: "",
+      },
+      status: session.status(),
+    };
+  } catch (error) {
+    return reply.code(400).send(jsonError(error));
+  }
+});
 
 app.get<{ Params: { id: string }; Querystring: { leafId?: string } }>(
   "/api/sessions/:id/messages",
@@ -543,6 +501,14 @@ app.post<{
       return { accepted: true, status: synced.status() };
     }
     const session = await getLiveSession(request.params.id);
+    await createCheckpoint(session.cwd, session.id).catch((error) =>
+      session.broadcast({
+        type: "extension_ui",
+        method: "notify",
+        message: `Checkpoint skipped: ${jsonError(error).error}`,
+        notifyType: "warning",
+      }),
+    );
     await session.prompt(
       text,
       normalizeImages(request.body?.images),
@@ -909,68 +875,18 @@ app.get<{ Querystring: { cwd?: string; path?: string } }>(
   },
 );
 
-app.get<{ Querystring: { cwd?: string } }>(
-  "/api/terminal",
-  { websocket: true },
-  (socket: any, request) => {
-    const cwd = resolve(request.query.cwd || DEFAULT_CWD);
-    const shell = process.env.PI_WEB_SHELL || "/bin/sh";
-    const send = (event: Json) => {
-      if (socket.readyState === 1) socket.send(JSON.stringify(event));
-    };
-    let child: pty.IPty;
-    try {
-      ensurePtyHelperExecutable();
-      child = pty.spawn(shell, [], {
-        cols: 80,
-        rows: 24,
-        cwd,
-        env: terminalEnv(),
-        name: "xterm-256color",
-      });
-    } catch (error) {
-      send({
-        type: "data",
-        data: `[terminal failed: ${jsonError(error).error}]\r\n`,
-      });
-      send({ type: "exit", code: 1 });
-      socket.close();
-      return;
-    }
-    child.onData((data) => send({ type: "data", data }));
-    child.onExit(({ exitCode }) => send({ type: "exit", code: exitCode }));
-    socket.on("message", (raw: Buffer | string) => {
-      const text = raw.toString();
-      try {
-        const msg = JSON.parse(text);
-        if (msg.type === "input" && typeof msg.data === "string")
-          child.write(msg.data);
-        if (msg.type === "resize") {
-          const cols = Number(msg.cols);
-          const rows = Number(msg.rows);
-          if (Number.isFinite(cols) && Number.isFinite(rows))
-            child.resize(
-              Math.min(500, Math.max(2, Math.floor(cols))),
-              Math.min(200, Math.max(1, Math.floor(rows))),
-            );
-        }
-        if (msg.type === "close") child.kill();
-      } catch {
-        child.write(text);
-      }
-    });
-    socket.on("close", () => child.kill());
-  },
-);
+registerTerminalRoutes(app, DEFAULT_CWD);
 
-registerCompatRoutes(app, {
+const routeDeps = {
   defaultCwd: DEFAULT_CWD,
   listSessions,
   resolveSessionPath,
   getLiveSession,
   startSession,
   liveSessions,
-});
+};
+registerCompatRoutes(app, routeDeps);
+registerProductRoutes(app, routeDeps);
 
 const clientDist = resolve(
   dirname(fileURLToPath(import.meta.url)),
