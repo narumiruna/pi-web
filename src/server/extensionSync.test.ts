@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ExtensionSyncRegistry,
+  isLoopbackAddress,
   isValidSyncedSessionFile,
   stringArray,
 } from "./extensionSync.js";
@@ -148,6 +149,15 @@ describe("ExtensionSyncRegistry", () => {
     );
 
     expect(session.send({ type: "prompt", text: "hi" })).toBe(false);
+  });
+});
+
+describe("isLoopbackAddress", () => {
+  it("accepts loopback addresses only", () => {
+    expect(isLoopbackAddress("127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("::1")).toBe(true);
+    expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
+    expect(isLoopbackAddress("10.0.0.2")).toBe(false);
   });
 });
 

@@ -1,4 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
+import { isIP } from "node:net";
 import { isAbsolute, relative, sep } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -9,6 +10,7 @@ type ControlSender = (event: SyncJson) => boolean;
 type SyncSocket = {
   readyState: number;
   send(data: string): void;
+  close(): void;
   on(event: "message", listener: (raw: Buffer | string) => void): void;
   on(event: "close", listener: () => void): void;
 };
@@ -123,7 +125,11 @@ export function registerExtensionSyncRoutes(
   app.get(
     "/api/sync/pi-extension",
     { websocket: true },
-    (socket: SyncSocket) => {
+    (socket: SyncSocket, request: FastifyRequest) => {
+      if (!isLoopbackAddress(request.ip)) {
+        socket.close();
+        return;
+      }
       const connection = {};
       let sessionId: string | undefined;
       const send = (event: SyncJson) => {
@@ -159,6 +165,17 @@ export function registerExtensionSyncRoutes(
         if (sessionId) registry.disconnect(sessionId, connection);
       });
     },
+  );
+}
+
+export function isLoopbackAddress(address: string) {
+  const normalized = address.startsWith("::ffff:")
+    ? address.slice("::ffff:".length)
+    : address;
+  return (
+    normalized === "::1" ||
+    normalized === "localhost" ||
+    (normalized.startsWith("127.") && isIP(normalized) === 4)
   );
 }
 

@@ -356,7 +356,8 @@ export async function serviceReady(
     } finally {
       clearTimeout(timeout);
     }
-    await delay(150);
+    const waitMs = Math.min(150, deadline - Date.now());
+    if (waitMs > 0) await delay(waitMs);
   } while (Date.now() < deadline);
   return false;
 }

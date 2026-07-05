@@ -14,6 +14,16 @@ describe("parsePort", () => {
 });
 
 describe("serviceReady", () => {
+  it("does not sleep past the timeout after failed attempts", async () => {
+    const started = Date.now();
+    const ready = await serviceReady("http://127.0.0.1:1", 20, async () => ({
+      ok: false,
+    }));
+
+    expect(ready).toBe(false);
+    expect(Date.now() - started).toBeLessThan(120);
+  });
+
   it("aborts a hung poll attempt", async () => {
     const started = Date.now();
     const ready = await serviceReady(
