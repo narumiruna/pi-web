@@ -1,5 +1,11 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ExtensionSyncRegistry } from "./extensionSync.js";
+import {
+  ExtensionSyncRegistry,
+  isValidSyncedSessionFile,
+} from "./extensionSync.js";
 
 function collect(events: unknown[]) {
   return (event: unknown) => {
@@ -53,6 +59,7 @@ describe("ExtensionSyncRegistry", () => {
       sessionName: "Synced",
       cwd: "/work",
       synced: true,
+      connected: true,
       isStreaming: true,
     });
     expect(seen.at(-1)).toMatchObject({
@@ -61,7 +68,9 @@ describe("ExtensionSyncRegistry", () => {
     });
 
     registry.disconnect("session-1", "second");
-    expect(registry.get("session-1")).toBeUndefined();
+    expect(registry.get("session-1")).toBe(first);
+    expect(first.connected).toBe(false);
+    expect(first.send({ type: "prompt", text: "hi" })).toBe(false);
   });
 
   it("does not let untrusted status payloads override normalized fields", () => {
@@ -85,9 +94,10 @@ describe("ExtensionSyncRegistry", () => {
     });
   });
 
-  it("disconnects an old session when a connection moves to another session", () => {
+  it("keeps an old session when a connection moves to another session", () => {
     const registry = new ExtensionSyncRegistry();
     const disconnected: unknown[] = [];
+    const reconnected: unknown[] = [];
     const connection = {};
     const first = registry.connect(
       { type: "hello", sessionId: "session-1", cwd: "/one" },
@@ -102,14 +112,29 @@ describe("ExtensionSyncRegistry", () => {
       connection,
     );
 
-    expect(registry.get("session-1")).toBeUndefined();
+    expect(registry.get("session-1")).toBe(first);
+    expect(first.connected).toBe(false);
     expect(registry.get("session-2")?.status()).toMatchObject({
       sessionId: "session-2",
       cwd: "/two",
+      connected: true,
     });
     expect(disconnected).toContainEqual({
       type: "sync_disconnected",
       sessionId: "session-1",
+    });
+
+    first.on((event) => reconnected.push(event));
+    expect(
+      registry.connect(
+        { type: "hello", sessionId: "session-1", cwd: "/one" },
+        collect([]),
+        {},
+      ),
+    ).toBe(first);
+    expect(reconnected.at(-1)).toMatchObject({
+      type: "status",
+      status: { sessionId: "session-1", connected: true },
     });
   });
 
@@ -122,5 +147,23 @@ describe("ExtensionSyncRegistry", () => {
     );
 
     expect(session.send({ type: "prompt", text: "hi" })).toBe(false);
+  });
+});
+
+describe("isValidSyncedSessionFile", () => {
+  it("accepts existing files inside the agent directory only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-agent-"));
+    const sessions = join(root, "sessions");
+    await mkdir(sessions);
+    const inside = join(sessions, "session.jsonl");
+    const outside = join(await mkdtemp(join(tmpdir(), "pi-web-outside-")), "x");
+    await writeFile(inside, "", "utf8");
+    await writeFile(outside, "", "utf8");
+
+    expect(isValidSyncedSessionFile(inside, root)).toBe(true);
+    expect(isValidSyncedSessionFile(outside, root)).toBe(false);
+    expect(isValidSyncedSessionFile(join(root, "missing.jsonl"), root)).toBe(
+      false,
+    );
   });
 });

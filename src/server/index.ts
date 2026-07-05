@@ -492,7 +492,7 @@ app.get<{ Params: { id: string } }>(
   async (request, reply) => {
     try {
       const synced = syncSessions.get(request.params.id);
-      if (synced) return { running: true, status: synced.status() };
+      if (synced) return { running: synced.connected, status: synced.status() };
       const live = liveSessions.get(request.params.id);
       if (live) return { running: true, status: live.status() };
       const file = await resolveSessionPath(request.params.id);

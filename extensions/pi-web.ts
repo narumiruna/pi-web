@@ -327,23 +327,44 @@ function serviceCommand() {
   );
 }
 
-async function serviceReady(url: string, timeoutMs: number) {
+type FetchConfig = (
+  input: string,
+  init: { signal: AbortSignal },
+) => Promise<{ ok: boolean }>;
+
+export async function serviceReady(
+  url: string,
+  timeoutMs: number,
+  fetchConfig: FetchConfig = fetch,
+) {
   const deadline = Date.now() + timeoutMs;
   do {
+    const remaining = Math.max(1, deadline - Date.now());
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.min(1_000, remaining),
+    );
+    timeout.unref?.();
     try {
-      const response = await fetch(`${url}/api/config`);
+      const response = await fetchConfig(`${url}/api/config`, {
+        signal: controller.signal,
+      });
       if (response.ok) return true;
     } catch {
       // service is not ready yet
+    } finally {
+      clearTimeout(timeout);
     }
     await delay(150);
   } while (Date.now() < deadline);
   return false;
 }
 
-function parsePort(args = "") {
+export function parsePort(args = "") {
   const parts = args.trim().split(/\s+/).filter(Boolean);
   const flag = parts.findIndex((part) => part === "--port" || part === "-p");
+  if (flag >= 0 && !parts[flag + 1]) throw new Error("Missing pi-web port");
   const value =
     flag >= 0 ? parts[flag + 1] : parts.find((part) => /^\d+$/.test(part));
   const port = value ? Number(value) : DEFAULT_PORT;

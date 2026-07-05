@@ -1,3 +1,6 @@
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 export type SyncJson = Record<string, unknown>;
@@ -28,6 +31,10 @@ export class ExtensionSyncedSession {
       : undefined;
   }
 
+  get connected() {
+    return Boolean(this.control);
+  }
+
   connect(hello: SyncJson, control: ControlSender, connection: unknown) {
     this.control = control;
     this.connection = connection;
@@ -40,6 +47,7 @@ export class ExtensionSyncedSession {
     this.control = undefined;
     this.connection = undefined;
     this.broadcast({ type: "sync_disconnected", sessionId: this.id });
+    this.broadcastStatus();
     return true;
   }
 
@@ -79,6 +87,7 @@ export class ExtensionSyncedSession {
       cwd: typeof this.statusData.cwd === "string" ? this.statusData.cwd : "",
       sessionId: this.id,
       synced: true,
+      connected: this.connected,
     };
   }
 
@@ -129,7 +138,10 @@ export function registerExtensionSyncRoutes(
           if (message.type === "hello") {
             const synced = registry.connect(message, send, connection);
             sessionId = synced.id;
-            if (synced.sessionFile)
+            if (
+              synced.sessionFile &&
+              isValidSyncedSessionFile(synced.sessionFile)
+            )
               onSessionFile(synced.id, synced.sessionFile);
             return;
           }
@@ -148,6 +160,22 @@ export function registerExtensionSyncRoutes(
       });
     },
   );
+}
+
+export function isValidSyncedSessionFile(
+  sessionFile: string,
+  agentDir = getAgentDir(),
+) {
+  try {
+    if (!existsSync(sessionFile)) return false;
+    const root = realpathSync(agentDir);
+    const file = realpathSync(sessionFile);
+    if (!statSync(file).isFile()) return false;
+    const path = relative(root, file);
+    return Boolean(path) && !path.startsWith("..") && !isAbsolute(path);
+  } catch {
+    return false;
+  }
 }
 
 export function sendSyncedEvents(
@@ -215,9 +243,7 @@ export class ExtensionSyncRegistry {
   }
 
   disconnect(id: string, connection: unknown) {
-    const session = this.sessions.get(id);
-    if (!session?.disconnect(connection)) return;
-    this.sessions.delete(id);
+    this.sessions.get(id)?.disconnect(connection);
     if (this.connections.get(connection) === id)
       this.connections.delete(connection);
   }
