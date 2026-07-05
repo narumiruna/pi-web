@@ -31,6 +31,7 @@ import {
   runGoldenTask,
   runProcess,
   runValidation,
+  safeReplayPath,
   saveBookmark,
   saveInstructionFile,
   saveMcpServer,
@@ -388,7 +389,8 @@ export function registerProductRoutes(app: FastifyInstance, deps: CompatDeps) {
       try {
         if (!request.query.path)
           return reply.code(400).send({ error: "path is required" });
-        return JSON.parse(await readFile(resolve(request.query.path), "utf8"));
+        const path = safeReplayPath(request.query.path);
+        return JSON.parse(await readFile(path, "utf8"));
       } catch (error) {
         return reply.code(400).send(jsonError(error));
       }

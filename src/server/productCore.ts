@@ -9,19 +9,11 @@ import {
   readdir,
   readFile,
   rename,
-  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { resolveInside } from "./pathSafety.js";
 
@@ -113,9 +105,15 @@ export async function git(cwd: string, args: string[], input?: string) {
   return runProcess("git", args, { cwd, input, timeoutMs: 30_000 });
 }
 
+async function gitRoot(cwd: string) {
+  const top = await git(resolve(cwd), ["rev-parse", "--show-toplevel"]);
+  if (top.code !== 0)
+    throw new Error(top.output.trim() || "Not a git repository");
+  return top.stdout.trim();
+}
+
 export async function gitDiff(cwd: string) {
-  const root = resolve(cwd);
-  const top = await git(root, ["rev-parse", "--show-toplevel"]);
+  const top = await git(resolve(cwd), ["rev-parse", "--show-toplevel"]);
   if (top.code !== 0)
     return {
       isRepo: false,
@@ -151,7 +149,7 @@ export async function revertGitChange(
   cwd: string,
   body: { path?: string; patch?: string },
 ) {
-  const root = resolve(cwd);
+  const root = await gitRoot(cwd);
   if (body.patch) {
     const result = await git(
       root,
@@ -164,11 +162,17 @@ export async function revertGitChange(
   }
   if (!body.path) throw new Error("path or patch is required");
   const path = relative(root, resolveInside(root, body.path));
-  const checkout = await git(root, ["checkout", "--", path]);
-  if (checkout.code !== 0) {
+  const restore = await git(root, [
+    "restore",
+    "--staged",
+    "--worktree",
+    "--",
+    path,
+  ]);
+  if (restore.code !== 0) {
     const clean = await git(root, ["clean", "-fd", "--", path]);
     if (clean.code !== 0)
-      throw new Error(`${checkout.output}${clean.output}`.trim());
+      throw new Error(`${restore.output}${clean.output}`.trim());
   }
   return { reverted: true, mode: "file", path };
 }
@@ -180,13 +184,24 @@ export type CheckpointMeta = {
   label?: string;
   created: string;
   untracked: string[];
+  skippedUntracked?: string[];
 };
+
+function isCheckpointMeta(value: unknown): value is CheckpointMeta {
+  return (
+    value instanceof Object &&
+    typeof (value as { cwd?: unknown }).cwd === "string" &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    typeof (value as { created?: unknown }).created === "string"
+  );
+}
 
 function checkpointDir(id = "") {
   return join(productDataDir(), "checkpoints", id);
 }
 
 async function copyUntracked(cwd: string, root: string, files: string[]) {
+  const copied: string[] = [];
   for (const file of files) {
     const source = resolveInside(cwd, file);
     const info = await stat(source).catch(() => undefined);
@@ -194,7 +209,9 @@ async function copyUntracked(cwd: string, root: string, files: string[]) {
     const target = join(root, "files", file);
     await ensureDir(dirname(target));
     await copyFile(source, target);
+    copied.push(file);
   }
+  return copied;
 }
 
 async function gitUntracked(cwd: string) {
@@ -212,10 +229,9 @@ export async function createCheckpoint(
   sessionId?: string,
   label?: string,
 ): Promise<CheckpointMeta> {
-  const root = resolve(cwd);
-  const repo = await git(root, ["rev-parse", "--show-toplevel"]);
-  if (repo.code !== 0) throw new Error("Checkpoints require a git repository");
-  const actualCwd = repo.stdout.trim();
+  const actualCwd = await gitRoot(cwd).catch(() => {
+    throw new Error("Checkpoints require a git repository");
+  });
   const id = `${Date.now()}-${randomUUID().slice(0, 8)}`;
   const dir = checkpointDir(id);
   await ensureDir(dir);
@@ -226,14 +242,16 @@ export async function createCheckpoint(
   ]);
   await writeFile(join(dir, "diff.patch"), diff.stdout);
   await writeFile(join(dir, "staged.patch"), staged.stdout);
-  await copyUntracked(actualCwd, dir, untracked);
+  const copiedUntracked = await copyUntracked(actualCwd, dir, untracked);
+  const copied = new Set(copiedUntracked);
   const meta = {
     id,
     cwd: actualCwd,
     sessionId,
     label,
     created: new Date().toISOString(),
-    untracked,
+    untracked: copiedUntracked,
+    skippedUntracked: untracked.filter((file) => !copied.has(file)),
   };
   await writeJson(join(dir, "meta.json"), meta);
   return meta;
@@ -243,6 +261,9 @@ export async function listCheckpoints(
   filter: { cwd?: string; sessionId?: string } = {},
 ) {
   const root = checkpointDir();
+  const cwdFilter = filter.cwd
+    ? await gitRoot(filter.cwd).catch(() => resolve(filter.cwd ?? ""))
+    : undefined;
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   const metas = await Promise.all(
     entries
@@ -255,14 +276,15 @@ export async function listCheckpoints(
       ),
   );
   return metas
-    .filter((meta): meta is CheckpointMeta => Boolean(meta))
-    .filter((meta) => !filter.cwd || resolve(meta.cwd) === resolve(filter.cwd))
+    .filter((meta): meta is CheckpointMeta => isCheckpointMeta(meta))
+    .filter((meta) => !cwdFilter || resolve(meta.cwd) === resolve(cwdFilter))
     .filter((meta) => !filter.sessionId || meta.sessionId === filter.sessionId)
     .sort((a, b) => b.created.localeCompare(a.created));
 }
 
 async function restoreCheckpointFiles(meta: CheckpointMeta, dir: string) {
-  for (const file of meta.untracked) {
+  const untracked = Array.isArray(meta.untracked) ? meta.untracked : [];
+  for (const file of untracked) {
     const source = join(dir, "files", file);
     if (!existsSync(source)) continue;
     const target = resolveInside(meta.cwd, file);
@@ -280,9 +302,20 @@ export async function rewindCheckpoint(
     join(dir, "meta.json"),
     undefined,
   );
-  if (!meta) throw new Error("Checkpoint not found");
+  if (!isCheckpointMeta(meta)) throw new Error("Checkpoint not found");
+  const metaUntracked = Array.isArray(meta.untracked) ? meta.untracked : [];
+  const skippedUntracked = Array.isArray(meta.skippedUntracked)
+    ? meta.skippedUntracked
+    : [];
+  const restorable = metaUntracked.filter((file) =>
+    existsSync(join(dir, "files", file)),
+  );
+  const preserve = [
+    ...skippedUntracked,
+    ...metaUntracked.filter((file) => !restorable.includes(file)),
+  ];
   const currentUntracked = await gitUntracked(meta.cwd);
-  const checkpointUntracked = new Set(meta.untracked);
+  const checkpointUntracked = new Set([...restorable, ...preserve]);
   const createdAfter = currentUntracked.filter(
     (file) => !checkpointUntracked.has(file),
   );
@@ -293,28 +326,32 @@ export async function rewindCheckpoint(
       () => undefined,
     );
   const reset = await git(meta.cwd, ["reset", "--hard"]);
-  const clean = await git(meta.cwd, ["clean", "-fd"]);
+  const clean = await git(meta.cwd, [
+    "clean",
+    "-fd",
+    ...preserve.flatMap((file) => ["-e", file]),
+  ]);
   if (reset.code !== 0 || clean.code !== 0)
     throw new Error(`${reset.output}${clean.output}`.trim());
   const diff = await readFile(join(dir, "diff.patch"), "utf8").catch(() => "");
   const staged = await readFile(join(dir, "staged.patch"), "utf8").catch(
     () => "",
   );
-  if (diff.trim()) {
-    const apply = await git(meta.cwd, ["apply", "--whitespace=nowarn"], diff);
-    if (apply.code !== 0)
-      throw new Error(apply.output || "Failed to apply checkpoint diff");
-  }
   if (staged.trim()) {
     const applyStaged = await git(
       meta.cwd,
-      ["apply", "--cached", "--whitespace=nowarn"],
+      ["apply", "--index", "--whitespace=nowarn"],
       staged,
     );
     if (applyStaged.code !== 0)
       throw new Error(
         applyStaged.output || "Failed to apply staged checkpoint diff",
       );
+  }
+  if (diff.trim()) {
+    const apply = await git(meta.cwd, ["apply", "--whitespace=nowarn"], diff);
+    if (apply.code !== 0)
+      throw new Error(apply.output || "Failed to apply checkpoint diff");
   }
   await restoreCheckpointFiles(meta, dir);
   return { rewound: true, checkpoint: meta };
@@ -530,6 +567,8 @@ export async function saveInstructionFile(
   };
 }
 export async function restoreInstructionFile(cwd: string, requested: string) {
+  if (!isAllowedInstructionPath(cwd, requested))
+    throw new Error("Instruction path is not allowed");
   const file = resolveInside(cwd, requested);
   const backup = `${file}.bak`;
   if (!existsSync(backup)) throw new Error("No backup found");
@@ -674,17 +713,27 @@ export async function searchSessions(query: string) {
   const sessions = await SessionManager.listAll();
   const results: any[] = [];
   for (const session of sessions) {
-    const manager = SessionManager.open(session.path);
-    results.push(
-      ...searchSessionEntries(
-        session.id,
-        manager.getEntries(),
-        query,
-        session.modified.toISOString(),
-      ),
-    );
+    try {
+      const manager = SessionManager.open(session.path);
+      results.push(
+        ...searchSessionEntries(
+          session.id,
+          manager.getEntries(),
+          query,
+          session.modified.toISOString(),
+        ),
+      );
+    } catch {
+      continue;
+    }
   }
   return results.slice(0, 50);
+}
+
+export function safeReplayPath(requestedPath: string) {
+  const trimmed = requestedPath.trim();
+  if (!trimmed) throw new Error("path is required");
+  return resolveInside(productDataDir(), trimmed);
 }
 
 function tasksPath() {
@@ -696,12 +745,16 @@ export async function listTasks() {
 export async function saveTask(task: any) {
   const tasks = await listTasks();
   const now = new Date().toISOString();
+  const existing = task.id
+    ? tasks.find((item) => item.id === task.id)
+    : undefined;
   const nextTask = {
     id: task.id || randomUUID(),
-    status: task.status || "todo",
-    created: task.created || now,
-    updated: now,
+    status: "todo",
+    created: now,
+    ...existing,
     ...task,
+    updated: now,
   };
   const next = [...tasks.filter((item) => item.id !== nextTask.id), nextTask];
   await writeJson(tasksPath(), next);

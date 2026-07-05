@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -21,12 +21,14 @@ import {
   readMcpConfig,
   redactSecrets,
   removeWorktree,
+  restoreInstructionFile,
   restoreMcpConfig,
   revertGitChange,
   reviewEvaluation,
   rewindCheckpoint,
   runGoldenTask,
   runValidation,
+  safeReplayPath,
   saveBookmark,
   saveInstructionFile,
   saveMcpServer,
@@ -83,6 +85,79 @@ describe("product core", () => {
     expect(await readFile(join(dir, "note.txt"), "utf8")).toBe("keep\n");
   });
 
+  it("preserves untracked files that were too large to copy into checkpoints", async () => {
+    const dir = await repo();
+    const big = "x".repeat(1024 * 1024 + 1);
+    await writeFile(join(dir, "large.bin"), big);
+    const checkpoint = await createCheckpoint(dir, "s1");
+
+    await writeFile(join(dir, "file.txt"), "changed\n");
+    await rewindCheckpoint(checkpoint.id, { confirmDelete: true });
+
+    expect(await readFile(join(dir, "large.bin"), "utf8")).toBe(big);
+  });
+
+  it("restores staged and unstaged checkpoint changes in order", async () => {
+    const dir = await repo();
+    await writeFile(join(dir, "file.txt"), "two\n");
+    await git(dir, ["add", "file.txt"]);
+    await writeFile(join(dir, "file.txt"), "three\n");
+    const checkpoint = await createCheckpoint(dir, "s1");
+
+    await writeFile(join(dir, "file.txt"), "later\n");
+    await rewindCheckpoint(checkpoint.id, { confirmDelete: true });
+
+    expect(await readFile(join(dir, "file.txt"), "utf8")).toBe("three\n");
+    expect((await git(dir, ["status", "--short"])).stdout.trim()).toBe(
+      "MM file.txt",
+    );
+  });
+
+  it("skips invalid checkpoint metadata while listing checkpoints", async () => {
+    const dir = await repo();
+    await mkdir(join(dir, "nested"));
+    const checkpoint = await createCheckpoint(dir, "s1");
+    const bad = join(process.env.PI_WEB_DATA_DIR ?? "", "checkpoints", "bad");
+    await mkdir(bad, { recursive: true });
+    await writeFile(
+      join(bad, "meta.json"),
+      JSON.stringify({ id: "bad", created: "0", cwd: 12, untracked: true }),
+    );
+
+    const checkpoints = await listCheckpoints({ cwd: join(dir, "nested") });
+    expect(checkpoints).toEqual([
+      expect.objectContaining({
+        id: checkpoint.id,
+        cwd: dir,
+        sessionId: "s1",
+        created: expect.any(String),
+        untracked: expect.any(Array),
+      }),
+    ]);
+  });
+
+  it("rewinds checkpoints even when untracked metadata is malformed", async () => {
+    const dir = await repo();
+    const checkpoint = await createCheckpoint(dir, "s1");
+    const bad = join(
+      process.env.PI_WEB_DATA_DIR ?? "",
+      "checkpoints",
+      checkpoint.id,
+    );
+    await writeFile(
+      join(bad, "meta.json"),
+      JSON.stringify({
+        ...checkpoint,
+        untracked: "not-an-array",
+      }),
+    );
+
+    const result = await rewindCheckpoint(checkpoint.id, {
+      confirmDelete: true,
+    });
+    expect(result).toMatchObject({ rewound: true });
+  });
+
   it("refuses to remove dirty worktrees without force", async () => {
     const dir = await repo();
     const worktree = await createWorktree(dir, "dirty");
@@ -118,6 +193,14 @@ describe("product core", () => {
     ).toContain("--draft");
   });
 
+  it("keeps replay paths inside data directory", () => {
+    const dataDir = process.env.PI_WEB_DATA_DIR ?? "";
+    expect(safeReplayPath("session.json")).toBe(join(dataDir, "session.json"));
+    expect(() => safeReplayPath("../outside.json")).toThrow(
+      /Path escapes workspace/,
+    );
+  });
+
   it("round-trips MCP config without losing unknown fields", async () => {
     const path = join(process.env.PI_WEB_DATA_DIR ?? "", "mcp.json");
     await writeFile(path, JSON.stringify({ unknown: true, servers: {} }));
@@ -138,6 +221,13 @@ describe("product core", () => {
     );
     await saveInstructionFile(dir, "AGENTS.md", "# ok");
     expect(await readFile(join(dir, "AGENTS.md"), "utf8")).toBe("# ok");
+
+    await writeFile(join(dir, "secret.txt"), "keep");
+    await writeFile(join(dir, "secret.txt.bak"), "replace");
+    await expect(restoreInstructionFile(dir, "secret.txt")).rejects.toThrow(
+      /allowed/,
+    );
+    expect(await readFile(join(dir, "secret.txt"), "utf8")).toBe("keep");
   });
 
   it("resolves permission profiles", async () => {
@@ -155,6 +245,18 @@ describe("product core", () => {
     const result = await revertGitChange(dir, { patch: diff.patch });
     expect(result).toMatchObject({ reverted: true, mode: "hunk" });
     expect(await readFile(join(dir, "file.txt"), "utf8")).toBe("one\n");
+  });
+
+  it("reverts staged files from a nested working directory", async () => {
+    const dir = await repo();
+    await mkdir(join(dir, "nested"));
+    await writeFile(join(dir, "file.txt"), "two\n");
+    await git(dir, ["add", "file.txt"]);
+
+    await revertGitChange(join(dir, "nested"), { path: "file.txt" });
+
+    expect(await readFile(join(dir, "file.txt"), "utf8")).toBe("one\n");
+    expect((await git(dir, ["status", "--short"])).stdout.trim()).toBe("");
   });
 
   it("creates a pre-rewind checkpoint before rewinding", async () => {
@@ -208,6 +310,12 @@ describe("product core", () => {
       id: task.id,
       title: "Ship it",
       status: "review",
+    });
+    await saveTask({ id: task.id, status: "done" });
+    expect((await listTasks())[0]).toMatchObject({
+      id: task.id,
+      title: "Ship it",
+      status: "done",
     });
 
     await saveBookmark({ sessionId: "s1", messageIndex: 2, excerpt: "hello" });
