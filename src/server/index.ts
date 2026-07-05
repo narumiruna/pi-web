@@ -493,7 +493,7 @@ app.get<{ Params: { id: string } }>(
   async (request, reply) => {
     try {
       const synced = syncSessions.get(request.params.id);
-      if (synced?.connected) return { running: true, status: synced.status() };
+      if (synced) return { running: synced.connected, status: synced.status() };
       const live = liveSessions.get(request.params.id);
       if (live) return { running: true, status: live.status() };
       const file = await resolveSessionPath(request.params.id);
@@ -530,7 +530,7 @@ app.post<{
     if (typeof text !== "string")
       return reply.code(400).send({ error: "text is required" });
     const synced = syncSessions.get(request.params.id);
-    if (synced?.connected) {
+    if (synced) {
       if (
         !synced.send({
           type: "prompt",
@@ -559,7 +559,7 @@ app.post<{ Params: { id: string } }>(
   async (request, reply) => {
     try {
       const synced = syncSessions.get(request.params.id);
-      if (synced?.connected) {
+      if (synced) {
         if (!synced.send({ type: "abort" }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { aborted: true };
@@ -578,7 +578,7 @@ app.post<{ Params: { id: string }; Body: { instructions?: string } }>(
   async (request, reply) => {
     try {
       const synced = syncSessions.get(request.params.id);
-      if (synced?.connected) {
+      if (synced) {
         if (
           !synced.send({
             type: "compact",
@@ -629,7 +629,7 @@ app.post<{ Params: { id: string }; Body: { toolNames?: string[] } }>(
     try {
       const toolNames = stringArray(request.body?.toolNames);
       const synced = syncSessions.get(request.params.id);
-      if (synced?.connected) {
+      if (synced) {
         if (!synced.send({ type: "setTools", toolNames }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { tools: toolNames };
@@ -673,7 +673,7 @@ app.post<{
         .code(400)
         .send({ error: "provider and modelId are required" });
     const synced = syncSessions.get(request.params.id);
-    if (synced?.connected) {
+    if (synced) {
       if (!synced.send({ type: "setModel", provider, modelId }))
         return reply.code(409).send({ error: "Pi extension disconnected" });
       return { status: synced.status() };
@@ -695,7 +695,7 @@ app.post<{ Params: { id: string }; Body: { level?: string } }>(
       const level = request.body?.level;
       if (!level) return reply.code(400).send({ error: "level is required" });
       const synced = syncSessions.get(request.params.id);
-      if (synced?.connected) {
+      if (synced) {
         if (!synced.send({ type: "setThinking", level }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
         return { status: synced.status() };
@@ -713,7 +713,7 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/events",
   async (request, reply) => {
     const synced = syncSessions.get(request.params.id);
-    if (synced?.connected) return sendSyncedEvents(request, reply, synced);
+    if (synced) return sendSyncedEvents(request, reply, synced);
 
     let session: WebSession;
     try {
