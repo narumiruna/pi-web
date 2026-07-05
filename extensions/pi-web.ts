@@ -164,7 +164,14 @@ export default function piWebExtension(pi: ExtensionAPI) {
         finish(resolvePromise);
       });
       ws.addEventListener("message", (event: any) => {
-        void handleControl(readSocketData(event.data), currentCtx ?? ctx);
+        void handleControl(readSocketData(event.data), currentCtx ?? ctx).catch(
+          (error) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            send({ type: "client_error", message });
+            (currentCtx ?? ctx).ui.notify(message, "error");
+          },
+        );
       });
       ws.addEventListener("close", () => {
         if (socket === ws) socket = undefined;

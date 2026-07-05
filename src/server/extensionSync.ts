@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 export type SyncJson = Record<string, unknown>;
 
-type ControlSender = (event: SyncJson) => void;
+type ControlSender = (event: SyncJson) => boolean;
 type SyncSocket = {
   readyState: number;
   send(data: string): void;
@@ -49,9 +49,7 @@ export class ExtensionSyncedSession {
   }
 
   send(event: SyncJson) {
-    if (!this.control) return false;
-    this.control(event);
-    return true;
+    return this.control?.(event) ?? false;
   }
 
   receive(event: SyncJson) {
@@ -69,16 +67,16 @@ export class ExtensionSyncedSession {
 
   status(): SyncJson {
     return {
+      isStreaming: false,
+      isCompacting: false,
+      pendingMessageCount: 0,
+      ...this.statusData,
       sessionFile: this.sessionFile,
       sessionName:
         typeof this.statusData.sessionName === "string"
           ? this.statusData.sessionName
           : undefined,
       cwd: typeof this.statusData.cwd === "string" ? this.statusData.cwd : "",
-      isStreaming: false,
-      isCompacting: false,
-      pendingMessageCount: 0,
-      ...this.statusData,
       sessionId: this.id,
       synced: true,
     };
@@ -120,7 +118,9 @@ export function registerExtensionSyncRoutes(
       const connection = {};
       let sessionId: string | undefined;
       const send = (event: SyncJson) => {
-        if (socket.readyState === 1) socket.send(JSON.stringify(event));
+        if (socket.readyState !== 1) return false;
+        socket.send(JSON.stringify(event));
+        return true;
       };
 
       socket.on("message", (raw: Buffer | string) => {
@@ -191,15 +191,21 @@ export function sendSyncedEvents(
 
 export class ExtensionSyncRegistry {
   private readonly sessions = new Map<string, ExtensionSyncedSession>();
+  private readonly connections = new Map<unknown, string>();
 
   connect(message: SyncJson, control: ControlSender, connection: unknown) {
     if (message.type !== "hello" || typeof message.sessionId !== "string") {
       throw new Error("Invalid pi-web sync hello");
     }
+    const previousId = this.connections.get(connection);
+    if (previousId && previousId !== message.sessionId) {
+      this.disconnect(previousId, connection);
+    }
     const session =
       this.sessions.get(message.sessionId) ??
       new ExtensionSyncedSession(message.sessionId);
     this.sessions.set(message.sessionId, session);
+    this.connections.set(connection, message.sessionId);
     session.connect(message, control, connection);
     return session;
   }
@@ -212,5 +218,7 @@ export class ExtensionSyncRegistry {
     const session = this.sessions.get(id);
     if (!session?.disconnect(connection)) return;
     this.sessions.delete(id);
+    if (this.connections.get(connection) === id)
+      this.connections.delete(connection);
   }
 }
