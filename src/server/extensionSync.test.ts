@@ -6,6 +6,7 @@ import {
   ExtensionSyncRegistry,
   isLoopbackAddress,
   isValidSyncedSessionFile,
+  sanitizeSyncedStatusData,
   stringArray,
 } from "./extensionSync.js";
 
@@ -26,7 +27,6 @@ describe("ExtensionSyncRegistry", () => {
       {
         type: "hello",
         sessionId: "session-1",
-        sessionFile: "/tmp/session-1.jsonl",
         cwd: "/work",
       },
       collect(firstControl),
@@ -57,7 +57,6 @@ describe("ExtensionSyncRegistry", () => {
     second.receive({ type: "status", status: { isStreaming: true } });
     expect(second.status()).toMatchObject({
       sessionId: "session-1",
-      sessionFile: "/tmp/session-1.jsonl",
       sessionName: "Synced",
       cwd: "/work",
       synced: true,
@@ -181,6 +180,24 @@ describe("isValidSyncedSessionFile", () => {
     expect(isValidSyncedSessionFile(join(root, "missing.jsonl"), root)).toBe(
       false,
     );
+  });
+});
+
+describe("sanitizeSyncedStatusData", () => {
+  it("keeps only validated session files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-web-agent-"));
+    const inside = join(root, "session.jsonl");
+    const outside = join(await mkdtemp(join(tmpdir(), "pi-web-outside-")), "x");
+    await writeFile(inside, "", "utf8");
+    await writeFile(outside, "", "utf8");
+
+    expect(sanitizeSyncedStatusData({ sessionFile: inside }, root)).toEqual({
+      sessionFile: inside,
+    });
+    expect(sanitizeSyncedStatusData({ sessionFile: outside }, root)).toEqual(
+      {},
+    );
+    expect(sanitizeSyncedStatusData({ sessionFile: 1 }, root)).toEqual({});
   });
 });
 

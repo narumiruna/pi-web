@@ -64,7 +64,10 @@ export class ExtensionSyncedSession {
 
   receive(event: SyncJson) {
     if (event.type === "status" && isRecord(event.status)) {
-      this.statusData = { ...this.statusData, ...event.status };
+      this.statusData = {
+        ...this.statusData,
+        ...sanitizeSyncedStatusData(event.status),
+      };
       this.broadcastStatus();
       return;
     }
@@ -113,7 +116,7 @@ export class ExtensionSyncedSession {
       if (message[key] !== undefined) metadata[key] = message[key];
     }
     if (isRecord(message.status)) Object.assign(metadata, message.status);
-    return metadata;
+    return sanitizeSyncedStatusData(metadata);
   }
 }
 
@@ -166,6 +169,21 @@ export function registerExtensionSyncRoutes(
       });
     },
   );
+}
+
+export function sanitizeSyncedStatusData(
+  data: SyncJson,
+  agentDir = getAgentDir(),
+) {
+  const status = { ...data };
+  if (
+    "sessionFile" in status &&
+    (typeof status.sessionFile !== "string" ||
+      !isValidSyncedSessionFile(status.sessionFile, agentDir))
+  ) {
+    delete status.sessionFile;
+  }
+  return status;
 }
 
 export function isLoopbackAddress(address: string) {
