@@ -7,7 +7,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_PORT = 30141;
 const HOST = "127.0.0.1";
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const extensionDir = dirname(fileURLToPath(import.meta.url));
+const packageRoot = existsSync(join(extensionDir, "..", "package.json"))
+  ? resolve(extensionDir, "..")
+  : resolve(extensionDir, "..", "..");
 
 export default function piWebExtension(pi: ExtensionAPI) {
   let serviceUrl = "";
@@ -200,7 +203,7 @@ export default function piWebExtension(pi: ExtensionAPI) {
     const message = JSON.parse(raw);
     if (message.type === "prompt" && typeof message.text === "string") {
       const content = promptContent(message.text, message.images);
-      const options = ctx.isIdle?.()
+      const options: any = ctx.isIdle?.()
         ? undefined
         : {
             deliverAs:
@@ -382,7 +385,7 @@ export function parsePort(args = "") {
   return port;
 }
 
-function promptContent(text: string, images: unknown) {
+function promptContent(text: string, images: unknown): any {
   if (!Array.isArray(images) || images.length === 0) return text;
   return [
     { type: "text", text },

@@ -150,6 +150,31 @@ describe("ExtensionSyncRegistry", () => {
 
     expect(session.send({ type: "prompt", text: "hi" })).toBe(false);
   });
+
+  it("evicts disconnected sessions after subscribers leave", () => {
+    const registry = new ExtensionSyncRegistry();
+    const session = registry.connect(
+      { type: "hello", sessionId: "session-1", cwd: "/work" },
+      collect([]),
+      "connection",
+    );
+    const unsubscribe = session.on(() => undefined);
+
+    registry.disconnect("session-1", "connection");
+    expect(registry.get("session-1")).toBe(session);
+    expect(session.hasSubscribers).toBe(true);
+
+    unsubscribe();
+    expect(registry.get("session-1")).toBeUndefined();
+
+    registry.connect(
+      { type: "hello", sessionId: "session-2", cwd: "/work" },
+      collect([]),
+      "second",
+    );
+    registry.disconnect("session-2", "second");
+    expect(registry.get("session-2")).toBeUndefined();
+  });
 });
 
 describe("isLoopbackAddress", () => {

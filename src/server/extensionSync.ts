@@ -25,7 +25,10 @@ export class ExtensionSyncedSession {
   private connection?: unknown;
   private statusData: SyncJson = {};
 
-  constructor(readonly id: string) {}
+  constructor(
+    readonly id: string,
+    private readonly onIdle?: (session: ExtensionSyncedSession) => void,
+  ) {}
 
   get sessionFile() {
     return typeof this.statusData.sessionFile === "string"
@@ -35,6 +38,10 @@ export class ExtensionSyncedSession {
 
   get connected() {
     return Boolean(this.control);
+  }
+
+  get hasSubscribers() {
+    return this.listeners.size > 0;
   }
 
   connect(hello: SyncJson, control: ControlSender, connection: unknown) {
@@ -50,12 +57,16 @@ export class ExtensionSyncedSession {
     this.connection = undefined;
     this.broadcast({ type: "sync_disconnected", sessionId: this.id });
     this.broadcastStatus();
+    this.notifyIdle();
     return true;
   }
 
   on(listener: (event: SyncJson) => void) {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+      this.notifyIdle();
+    };
   }
 
   send(event: SyncJson) {
@@ -98,6 +109,10 @@ export class ExtensionSyncedSession {
 
   private broadcastStatus() {
     this.broadcast({ type: "status", status: this.status() });
+  }
+
+  private notifyIdle() {
+    if (!this.connected && !this.hasSubscribers) this.onIdle?.(this);
   }
 
   private metadata(message: SyncJson) {
@@ -285,7 +300,11 @@ export class ExtensionSyncRegistry {
     }
     const session =
       this.sessions.get(message.sessionId) ??
-      new ExtensionSyncedSession(message.sessionId);
+      new ExtensionSyncedSession(message.sessionId, (idleSession) => {
+        if (this.sessions.get(idleSession.id) === idleSession) {
+          this.sessions.delete(idleSession.id);
+        }
+      });
     this.sessions.set(message.sessionId, session);
     this.connections.set(connection, message.sessionId);
     session.connect(message, control, connection);
