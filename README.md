@@ -17,6 +17,15 @@ pi-web
 
 Open the printed URL (without `--port`/`PORT`, it starts at <http://127.0.0.1:30141> and uses the next free port if busy).
 
+As a Pi extension:
+
+```bash
+pi install npm:@narumitw/pi-web
+# then in pi: /pi-web
+```
+
+`/pi-web` starts the local service and live-syncs the current Pi session.
+
 Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-works/pi).
 
 ## Features
