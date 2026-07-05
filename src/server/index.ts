@@ -17,6 +17,13 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyReply } from "fastify";
 import * as pty from "node-pty";
 import { registerCompatRoutes } from "./compatRoutes.js";
+import {
+  ExtensionSyncRegistry,
+  registerExtensionSyncRoutes,
+  sendOrReportSynced,
+  sendSyncedEvents,
+  stringArray,
+} from "./extensionSync.js";
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
 import { DEFAULT_PORT, isAddressInUse, portCandidates } from "./ports.js";
@@ -45,6 +52,7 @@ const DEFAULT_CWD = resolve(
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const sessionPathCache = new Map<string, string>();
 const liveSessions = new Map<string, WebSession>();
+const syncSessions = new ExtensionSyncRegistry();
 
 function terminalEnv() {
   const currentPath = process.env[PATH_ENV] ?? process.env.PATH ?? "";
@@ -378,6 +386,10 @@ const app = Fastify({
 });
 await app.register(fastifyWebsocket);
 
+registerExtensionSyncRoutes(app, syncSessions, (id, file) =>
+  sessionPathCache.set(id, file),
+);
+
 app.get("/api/config", async () => ({
   defaultCwd: DEFAULT_CWD,
   agentDir: getAgentDir(),
@@ -481,6 +493,8 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/status",
   async (request, reply) => {
     try {
+      const synced = syncSessions.get(request.params.id);
+      if (synced) return { running: synced.connected, status: synced.status() };
       const live = liveSessions.get(request.params.id);
       if (live) return { running: true, status: live.status() };
       const file = await resolveSessionPath(request.params.id);
@@ -503,7 +517,6 @@ app.get<{ Params: { id: string } }>(
     }
   },
 );
-
 app.post<{
   Params: { id: string };
   Body: {
@@ -516,6 +529,19 @@ app.post<{
     const text = request.body?.text;
     if (typeof text !== "string")
       return reply.code(400).send({ error: "text is required" });
+    const synced = syncSessions.get(request.params.id);
+    if (synced) {
+      if (
+        !sendOrReportSynced(synced, {
+          type: "prompt",
+          text,
+          images: normalizeImages(request.body?.images),
+          streamingBehavior: request.body?.streamingBehavior,
+        })
+      )
+        return reply.code(409).send({ error: "Pi extension disconnected" });
+      return { accepted: true, status: synced.status() };
+    }
     const session = await getLiveSession(request.params.id);
     await session.prompt(
       text,
@@ -532,6 +558,12 @@ app.post<{ Params: { id: string } }>(
   "/api/sessions/:id/abort",
   async (request, reply) => {
     try {
+      const synced = syncSessions.get(request.params.id);
+      if (synced) {
+        if (!sendOrReportSynced(synced, { type: "abort" }))
+          return reply.code(409).send({ error: "Pi extension disconnected" });
+        return { aborted: true };
+      }
       const session = await getLiveSession(request.params.id);
       await session.inner.abort();
       return { aborted: true };
@@ -545,6 +577,17 @@ app.post<{ Params: { id: string }; Body: { instructions?: string } }>(
   "/api/sessions/:id/compact",
   async (request, reply) => {
     try {
+      const synced = syncSessions.get(request.params.id);
+      if (synced) {
+        if (
+          !sendOrReportSynced(synced, {
+            type: "compact",
+            instructions: request.body?.instructions,
+          })
+        )
+          return reply.code(409).send({ error: "Pi extension disconnected" });
+        return { result: "queued" };
+      }
       const session = await getLiveSession(request.params.id);
       const result = await session.inner.compact(request.body?.instructions);
       return { result };
@@ -558,6 +601,12 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/tools",
   async (request, reply) => {
     try {
+      const synced = syncSessions.get(request.params.id);
+      if (synced?.connected) {
+        const status = synced.status();
+        const tools = Array.isArray(status.tools) ? status.tools : [];
+        return { tools };
+      }
       const session = await getLiveSession(request.params.id);
       const active = new Set(session.inner.getActiveToolNames());
       return {
@@ -578,8 +627,15 @@ app.post<{ Params: { id: string }; Body: { toolNames?: string[] } }>(
   "/api/sessions/:id/tools",
   async (request, reply) => {
     try {
+      const toolNames = stringArray(request.body?.toolNames);
+      const synced = syncSessions.get(request.params.id);
+      if (synced) {
+        if (!sendOrReportSynced(synced, { type: "setTools", toolNames }))
+          return reply.code(409).send({ error: "Pi extension disconnected" });
+        return { tools: toolNames };
+      }
       const session = await getLiveSession(request.params.id);
-      session.inner.setActiveToolsByName(request.body?.toolNames ?? []);
+      session.inner.setActiveToolsByName(toolNames);
       return { tools: session.inner.getActiveToolNames() };
     } catch (error) {
       return reply.code(400).send(jsonError(error));
@@ -591,6 +647,11 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/commands",
   async (request, reply) => {
     try {
+      const synced = syncSessions.get(request.params.id);
+      if (synced?.connected) {
+        const commands = synced.status().commands;
+        return { commands: Array.isArray(commands) ? commands : [] };
+      }
       const session = await getLiveSession(request.params.id);
       await session.ready;
       return { commands: commandList(session.inner) };
@@ -611,6 +672,12 @@ app.post<{
       return reply
         .code(400)
         .send({ error: "provider and modelId are required" });
+    const synced = syncSessions.get(request.params.id);
+    if (synced) {
+      if (!sendOrReportSynced(synced, { type: "setModel", provider, modelId }))
+        return reply.code(409).send({ error: "Pi extension disconnected" });
+      return { status: synced.status() };
+    }
     const session = await getLiveSession(request.params.id);
     const model = session.inner.modelRegistry.find(provider, modelId);
     if (!model) return reply.code(404).send({ error: "Model not found" });
@@ -627,6 +694,12 @@ app.post<{ Params: { id: string }; Body: { level?: string } }>(
     try {
       const level = request.body?.level;
       if (!level) return reply.code(400).send({ error: "level is required" });
+      const synced = syncSessions.get(request.params.id);
+      if (synced) {
+        if (!sendOrReportSynced(synced, { type: "setThinking", level }))
+          return reply.code(409).send({ error: "Pi extension disconnected" });
+        return { status: synced.status() };
+      }
       const session = await getLiveSession(request.params.id);
       session.inner.setThinkingLevel(level as any);
       return { status: session.status() };
@@ -639,6 +712,9 @@ app.post<{ Params: { id: string }; Body: { level?: string } }>(
 app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/events",
   async (request, reply) => {
+    const synced = syncSessions.get(request.params.id);
+    if (synced) return sendSyncedEvents(request, reply, synced);
+
     let session: WebSession;
     try {
       session = await getLiveSession(request.params.id);

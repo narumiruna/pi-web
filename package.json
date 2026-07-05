@@ -2,6 +2,9 @@
   "name": "@narumitw/pi-web",
   "version": "0.2.3",
   "description": "Local-first web UI for pi-coding-agent.",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
@@ -14,15 +17,20 @@
   "bin": {
     "pi-web": "dist/server/cli.js"
   },
+  "pi": {
+    "extensions": [
+      "./dist/extensions/pi-web.js"
+    ]
+  },
   "scripts": {
     "dev": "bash -c 'trap \"kill 0\" EXIT; npm run dev:server & npm run dev:client & wait'",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite --host 0.0.0.0",
-    "build": "tsc -p tsconfig.server.json && vite build",
+    "build": "tsc -p tsconfig.server.json && tsc -p tsconfig.extension.json && vite build",
     "prepack": "npm run build",
     "start": "node dist/server/index.js",
     "lint": "biome ci .",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.extension.json --noEmit",
     "test": "vitest run",
     "ci": "npm run lint && npm run typecheck && npm test && npm run build"
   },

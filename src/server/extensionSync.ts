@@ -1,0 +1,335 @@
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { isIP } from "node:net";
+import { isAbsolute, relative, sep } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+
+export type SyncJson = Record<string, unknown>;
+
+type ControlSender = (event: SyncJson) => boolean;
+type SyncSocket = {
+  readyState: number;
+  send(data: string): void;
+  close(): void;
+  on(event: "message", listener: (raw: Buffer | string) => void): void;
+  on(event: "close", listener: () => void): void;
+};
+
+function isRecord(value: unknown): value is SyncJson {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export class ExtensionSyncedSession {
+  private readonly listeners = new Set<(event: SyncJson) => void>();
+  private control?: ControlSender;
+  private connection?: unknown;
+  private statusData: SyncJson = {};
+
+  constructor(
+    readonly id: string,
+    private readonly onIdle?: (session: ExtensionSyncedSession) => void,
+  ) {}
+
+  get sessionFile() {
+    return typeof this.statusData.sessionFile === "string"
+      ? this.statusData.sessionFile
+      : undefined;
+  }
+
+  get connected() {
+    return Boolean(this.control);
+  }
+
+  get hasSubscribers() {
+    return this.listeners.size > 0;
+  }
+
+  connect(hello: SyncJson, control: ControlSender, connection: unknown) {
+    this.control = control;
+    this.connection = connection;
+    this.statusData = { ...this.statusData, ...this.metadata(hello) };
+    this.broadcastStatus();
+  }
+
+  disconnect(connection: unknown) {
+    if (this.connection !== connection) return false;
+    this.control = undefined;
+    this.connection = undefined;
+    this.broadcast({ type: "sync_disconnected", sessionId: this.id });
+    this.broadcastStatus();
+    this.notifyIdle();
+    return true;
+  }
+
+  on(listener: (event: SyncJson) => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+      this.notifyIdle();
+    };
+  }
+
+  send(event: SyncJson) {
+    return this.control?.(event) ?? false;
+  }
+
+  receive(event: SyncJson) {
+    if (event.type === "status" && isRecord(event.status)) {
+      this.statusData = {
+        ...this.statusData,
+        ...sanitizeSyncedStatusData(event.status),
+      };
+      this.broadcastStatus();
+      return;
+    }
+    this.broadcast(event);
+  }
+
+  broadcast(event: SyncJson) {
+    for (const listener of this.listeners) listener(event);
+  }
+
+  status(): SyncJson {
+    return {
+      isStreaming: false,
+      isCompacting: false,
+      pendingMessageCount: 0,
+      ...this.statusData,
+      sessionFile: this.sessionFile,
+      sessionName:
+        typeof this.statusData.sessionName === "string"
+          ? this.statusData.sessionName
+          : undefined,
+      cwd: typeof this.statusData.cwd === "string" ? this.statusData.cwd : "",
+      sessionId: this.id,
+      synced: true,
+      connected: this.connected,
+    };
+  }
+
+  private broadcastStatus() {
+    this.broadcast({ type: "status", status: this.status() });
+  }
+
+  private notifyIdle() {
+    if (!this.connected && !this.hasSubscribers) this.onIdle?.(this);
+  }
+
+  private metadata(message: SyncJson) {
+    const metadata: SyncJson = {};
+    for (const key of [
+      "sessionFile",
+      "sessionName",
+      "cwd",
+      "model",
+      "thinkingLevel",
+      "contextUsage",
+      "activeTools",
+      "tools",
+      "commands",
+    ]) {
+      if (message[key] !== undefined) metadata[key] = message[key];
+    }
+    if (isRecord(message.status)) Object.assign(metadata, message.status);
+    return sanitizeSyncedStatusData(metadata);
+  }
+}
+
+export function registerExtensionSyncRoutes(
+  app: FastifyInstance,
+  registry: ExtensionSyncRegistry,
+  onSessionFile: (sessionId: string, sessionFile: string) => void,
+) {
+  app.get(
+    "/api/sync/pi-extension",
+    { websocket: true },
+    (socket: SyncSocket, request: FastifyRequest) => {
+      if (!isLoopbackAddress(request.ip)) {
+        socket.close();
+        return;
+      }
+      const connection = {};
+      let sessionId: string | undefined;
+      const send = (event: SyncJson) => {
+        if (socket.readyState !== 1) return false;
+        socket.send(JSON.stringify(event));
+        return true;
+      };
+
+      socket.on("message", (raw: Buffer | string) => {
+        try {
+          const message = parseSyncMessage(raw);
+          if (message.type === "hello") {
+            const synced = registry.connect(message, send, connection);
+            sessionId = synced.id;
+            if (
+              synced.sessionFile &&
+              isValidSyncedSessionFile(synced.sessionFile)
+            )
+              onSessionFile(synced.id, synced.sessionFile);
+            return;
+          }
+          if (!sessionId) return;
+          registry.get(sessionId)?.receive(message);
+        } catch (error) {
+          send({
+            type: "error",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+
+      socket.on("close", () => {
+        if (sessionId) registry.disconnect(sessionId, connection);
+      });
+    },
+  );
+}
+
+export function parseSyncMessage(raw: Buffer | string) {
+  const message = JSON.parse(raw.toString());
+  if (!isRecord(message) || typeof message.type !== "string") {
+    throw new Error("Invalid pi-web sync message");
+  }
+  return message;
+}
+
+export function sanitizeSyncedStatusData(
+  data: SyncJson,
+  agentDir = getAgentDir(),
+) {
+  const status = { ...data };
+  if (
+    "sessionFile" in status &&
+    (typeof status.sessionFile !== "string" ||
+      !isValidSyncedSessionFile(status.sessionFile, agentDir))
+  ) {
+    delete status.sessionFile;
+  }
+  return status;
+}
+
+export function isLoopbackAddress(address: string) {
+  const normalized = address.startsWith("::ffff:")
+    ? address.slice("::ffff:".length)
+    : address;
+  return (
+    normalized === "::1" ||
+    normalized === "localhost" ||
+    (normalized.startsWith("127.") && isIP(normalized) === 4)
+  );
+}
+
+export function isValidSyncedSessionFile(
+  sessionFile: string,
+  agentDir = getAgentDir(),
+) {
+  try {
+    if (!existsSync(sessionFile)) return false;
+    const root = realpathSync(agentDir);
+    const file = realpathSync(sessionFile);
+    if (!statSync(file).isFile()) return false;
+    const path = relative(root, file);
+    return (
+      Boolean(path) &&
+      path !== ".." &&
+      !path.startsWith(`..${sep}`) &&
+      !isAbsolute(path)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export function sendOrReportSynced(
+  synced: ExtensionSyncedSession,
+  event: SyncJson,
+) {
+  if (synced.send(event)) return true;
+  synced.broadcast({
+    type: "session_error",
+    message: "Pi extension disconnected",
+  });
+  return false;
+}
+
+export function sendSyncedEvents(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  synced: ExtensionSyncedSession,
+) {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      const send = (event: SyncJson) =>
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+        );
+      send({
+        type: "connected",
+        sessionId: synced.id,
+        status: synced.status(),
+      });
+      const unsubscribe = synced.on(send);
+      const heartbeat = setInterval(
+        () => controller.enqueue(encoder.encode(":\n\n")),
+        30_000,
+      );
+      request.raw.on("close", () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+      });
+    },
+  });
+  return reply
+    .header("Content-Type", "text/event-stream")
+    .header("Cache-Control", "no-cache")
+    .send(stream);
+}
+
+export class ExtensionSyncRegistry {
+  private readonly sessions = new Map<string, ExtensionSyncedSession>();
+  private readonly connections = new Map<unknown, string>();
+
+  connect(message: SyncJson, control: ControlSender, connection: unknown) {
+    if (message.type !== "hello" || typeof message.sessionId !== "string") {
+      throw new Error("Invalid pi-web sync hello");
+    }
+    const previousId = this.connections.get(connection);
+    if (previousId && previousId !== message.sessionId) {
+      this.disconnect(previousId, connection);
+    }
+    const session =
+      this.sessions.get(message.sessionId) ??
+      new ExtensionSyncedSession(message.sessionId, (idleSession) => {
+        if (this.sessions.get(idleSession.id) === idleSession) {
+          this.sessions.delete(idleSession.id);
+        }
+      });
+    this.sessions.set(message.sessionId, session);
+    this.connections.set(connection, message.sessionId);
+    session.connect(message, control, connection);
+    return session;
+  }
+
+  get(id: string) {
+    return this.sessions.get(id);
+  }
+
+  disconnect(id: string, connection: unknown) {
+    this.sessions.get(id)?.disconnect(connection);
+    if (this.connections.get(connection) === id)
+      this.connections.delete(connection);
+  }
+}
