@@ -3,6 +3,7 @@ import { AuthSettings, providerConfigured, providerName } from "./AuthSettings";
 import { api } from "./api";
 import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
 import { scopeLabel, sessionTitle, toolRiskLabel } from "./uiText";
+import type { UsageSnapshot } from "./usage";
 
 type JsonObject = Record<string, unknown>;
 type DashboardValue =
@@ -17,12 +18,29 @@ type StatusSnapshot = {
   model?: { provider?: string; id?: string };
   isStreaming?: boolean;
 } | null;
-type Section = "session" | "git" | "model" | "tools" | "skills" | "appearance";
+type Section =
+  | "session"
+  | "git"
+  | "model"
+  | "tools"
+  | "skills"
+  | "usage"
+  | "diagnostics"
+  | "rules"
+  | "mcp"
+  | "permissions"
+  | "bookmarks"
+  | "appearance";
 
 type LoadedData = {
   auth?: DashboardValue;
   skills?: DashboardValue;
   git?: DashboardValue;
+  diagnostics?: DashboardValue;
+  instructions?: DashboardValue;
+  mcp?: DashboardValue;
+  bookmarks?: DashboardValue;
+  permissions?: DashboardValue;
 };
 
 const object = (value: DashboardValue) =>
@@ -95,6 +113,9 @@ export function ControlRoom({
   status,
   models,
   tools,
+  usageHistory,
+  permissionProfile,
+  onPermissionProfile,
   theme,
   onTheme,
   onModel,
@@ -109,6 +130,9 @@ export function ControlRoom({
   status: StatusSnapshot;
   models: ModelInfo[];
   tools: ToolInfo[];
+  usageHistory: UsageSnapshot[];
+  permissionProfile: string;
+  onPermissionProfile: (profile: string) => void;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onModel: (value: string) => Promise<void>;
@@ -144,6 +168,11 @@ export function ControlRoom({
         "git",
         `/api/projects/${routeProjectId(cwd)}/workspaces/root/git/status`,
       ),
+      read("diagnostics", `/api/diagnostics?cwd=${encodeURIComponent(cwd)}`),
+      read("instructions", `/api/instructions?cwd=${encodeURIComponent(cwd)}`),
+      read("mcp", "/api/mcp"),
+      read("bookmarks", "/api/bookmarks"),
+      read("permissions", "/api/permissions"),
     ]);
     setData(Object.fromEntries(entries) as LoadedData);
     setLoading(false);
@@ -177,6 +206,45 @@ export function ControlRoom({
     } finally {
       setSavingTools(false);
     }
+  }
+
+  async function savePermissionProfile(profile: string) {
+    await api("/api/permissions", {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    });
+    onPermissionProfile(profile);
+    await refresh();
+    onNotice("Permission profile saved");
+  }
+
+  async function addMcpServer() {
+    const name = prompt("MCP server name");
+    const command = prompt("stdio command");
+    if (!name || !command) return;
+    await api("/api/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        server: { type: "stdio", command, enabled: true },
+      }),
+    });
+    await refresh();
+    onNotice("MCP server saved");
+  }
+
+  async function editInstruction(path: string) {
+    const current = await api<{ content: string }>(
+      `/api/instructions?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`,
+    );
+    const content = prompt(`Edit ${path}`, current.content);
+    if (content === null) return;
+    await api("/api/instructions", {
+      method: "PATCH",
+      body: JSON.stringify({ cwd, path, content }),
+    });
+    await refresh();
+    onNotice(`${path} saved`);
   }
 
   async function setSkillInvocation(skill: DashboardValue, enabled: boolean) {
@@ -243,6 +311,13 @@ export function ControlRoom({
   const enabledSkills = skills.filter(
     (skill) => !boolField(skill, "disableModelInvocation"),
   );
+  const usage = usageHistory.at(-1);
+  const diagnosticItems = arrayField(data.diagnostics, "items");
+  const instructionFiles = arrayField(data.instructions, "files");
+  const mcpServers = object(field(data.mcp, "config"))?.servers as
+    | Record<string, unknown>
+    | undefined;
+  const bookmarks = arrayField(data.bookmarks, "bookmarks");
   const selectedTitle = selected
     ? sessionTitle(selected)
     : "No session selected";
@@ -267,6 +342,24 @@ export function ControlRoom({
     { key: "model", label: "Model & API Keys", meta: authSummary },
     { key: "tools", label: "Tools", meta: `${activeToolNames.length} enabled` },
     { key: "skills", label: "Skills", meta: `${enabledSkills.length} enabled` },
+    {
+      key: "usage",
+      label: "Usage",
+      meta: usage ? `$${usage.cost.toFixed(4)}` : "—",
+    },
+    {
+      key: "diagnostics",
+      label: "Diagnostics",
+      meta: `${diagnosticItems.length} checks`,
+    },
+    { key: "rules", label: "Rules", meta: `${instructionFiles.length} files` },
+    {
+      key: "mcp",
+      label: "MCP",
+      meta: `${Object.keys(mcpServers ?? {}).length} servers`,
+    },
+    { key: "permissions", label: "Permissions", meta: permissionProfile },
+    { key: "bookmarks", label: "Bookmarks", meta: `${bookmarks.length}` },
     { key: "appearance", label: "Appearance", meta: themeNames[theme] },
   ];
 
@@ -625,6 +718,182 @@ export function ControlRoom({
                     No skills found for this workspace.
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {section === "usage" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Usage</div>
+                  <h2>Token / cost dashboard</h2>
+                  <p>
+                    Provider/SDK reported estimates; missing values show as
+                    zero.
+                  </p>
+                </div>
+              </div>
+              <div className="summary-grid">
+                <div>
+                  <span>Input</span>
+                  <strong>{usage?.inputTokens ?? 0}</strong>
+                  <small>tokens</small>
+                </div>
+                <div>
+                  <span>Output</span>
+                  <strong>{usage?.outputTokens ?? 0}</strong>
+                  <small>tokens</small>
+                </div>
+                <div>
+                  <span>Cost</span>
+                  <strong>${(usage?.cost ?? 0).toFixed(4)}</strong>
+                  <small>estimated</small>
+                </div>
+                <div>
+                  <span>Context</span>
+                  <strong>{usage?.contextPercent ?? 0}%</strong>
+                  <small>{usageHistory.length} samples</small>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {section === "diagnostics" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Diagnostics</div>
+                  <h2>Onboarding checks</h2>
+                  <p>
+                    Actionable checks for runtime, auth, model setup, cwd, and
+                    shell.
+                  </p>
+                </div>
+                <button type="button" onClick={() => void refresh()}>
+                  Refresh
+                </button>
+              </div>
+              <div className="compact-list">
+                {diagnosticItems.map((item) => (
+                  <div
+                    className={`compact-row ${textField(item, "status")}`}
+                    key={textField(item, "name")}
+                  >
+                    <strong>{textField(item, "name")}</strong>
+                    <span>{textField(item, "detail")}</span>
+                    {textField(item, "fix") && (
+                      <small>{textField(item, "fix")}</small>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {section === "rules" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Rules</div>
+                  <h2>Repo instructions / skills / rules</h2>
+                  <p>Only AGENTS.md, CLAUDE.md, and .pi paths are editable.</p>
+                </div>
+              </div>
+              <div className="compact-list">
+                {instructionFiles.map((file) => (
+                  <div className="compact-row" key={textField(file, "path")}>
+                    <strong>{textField(file, "path")}</strong>
+                    <span>
+                      {boolField(file, "exists") ? "exists" : "missing"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void editInstruction(
+                          textField(file, "path") ?? "AGENTS.md",
+                        )
+                      }
+                    >
+                      Edit
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {section === "mcp" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">MCP / external tools</div>
+                  <h2>{Object.keys(mcpServers ?? {}).length} stdio servers</h2>
+                  <p>
+                    Pi has no built-in MCP; pi-web stores config for
+                    extension-backed tool launchers.
+                  </p>
+                </div>
+                <button type="button" onClick={() => void addMcpServer()}>
+                  Add stdio server
+                </button>
+              </div>
+              <pre className="diff-output">
+                {JSON.stringify(mcpServers ?? {}, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {section === "permissions" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Permissions</div>
+                  <h2>Safe mode profile</h2>
+                  <p>
+                    Pi SDK exposes no approval hook here, so this is
+                    profile-only tool limiting for new sessions.
+                  </p>
+                </div>
+                <select
+                  value={permissionProfile}
+                  onChange={(event) =>
+                    void savePermissionProfile(event.target.value)
+                  }
+                >
+                  <option value="safe">safe</option>
+                  <option value="ask">ask</option>
+                  <option value="full">full</option>
+                </select>
+              </div>
+              <pre className="diff-output">
+                {JSON.stringify(data.permissions ?? {}, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {section === "bookmarks" && (
+            <div className="settings-page">
+              <div className="section-head">
+                <div>
+                  <div className="panel-title">Bookmarks</div>
+                  <h2>{bookmarks.length} saved messages</h2>
+                  <p>
+                    Bookmarks live in pi-web metadata, not session transcript
+                    files.
+                  </p>
+                </div>
+              </div>
+              <div className="compact-list">
+                {bookmarks.map((bookmark) => (
+                  <div
+                    className="compact-row"
+                    key={`${textField(bookmark, "sessionId")}-${field(bookmark, "messageIndex") ?? textField(bookmark, "leafId") ?? textField(bookmark, "created") ?? textField(bookmark, "excerpt")}`}
+                  >
+                    <strong>{textField(bookmark, "role") ?? "message"}</strong>
+                    <span>{textField(bookmark, "excerpt")}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

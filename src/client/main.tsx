@@ -4,8 +4,13 @@ import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
+import { DiffPane } from "./DiffPane";
+import { EvaluationPane } from "./EvaluationPane";
 import { FilePane } from "./FilePane";
+import { PreviewPane } from "./PreviewPane";
+import { ReplayPane } from "./ReplayPane";
 import { Sidebar } from "./Sidebar";
+import { shortcutAction } from "./shortcuts";
 import { TerminalPane } from "./TerminalPane";
 import type {
   AttachedImage,
@@ -16,9 +21,22 @@ import type {
   ToolInfo,
 } from "./types";
 import { noticeTone, sessionTitle } from "./uiText";
+import { type UsageSnapshot, usageFromStatus } from "./usage";
+import { ValidationPanel } from "./ValidationPanel";
+import { WorkbenchPane } from "./WorkbenchPane";
 import "./styles.css";
 
-type Tab = "chat" | "terminal" | "file" | "settings";
+type Tab =
+  | "chat"
+  | "terminal"
+  | "file"
+  | "settings"
+  | "diff"
+  | "validation"
+  | "preview"
+  | "workbench"
+  | "evaluation"
+  | "replay";
 
 const THEME_STORAGE_KEY = "pi-web.theme";
 const FILE_REFRESH_DEBOUNCE_MS = 150;
@@ -67,6 +85,10 @@ function App() {
   const [commands, setCommands] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("chat");
+  const [permissionProfile, setPermissionProfile] = useState("ask");
+  const [newWorktree, setNewWorktree] = useState(false);
+  const [usageHistory, setUsageHistory] = useState<UsageSnapshot[]>([]);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
@@ -143,9 +165,17 @@ function App() {
         const event = JSON.parse(message.data);
         if (event.type === "connected") {
           setStatus(event.status);
+          setUsageHistory((value) => [
+            ...value.slice(-99),
+            usageFromStatus(event.status),
+          ]);
           setRunning(Boolean(event.status?.isStreaming));
         } else if (event.type === "status") {
           setStatus(event.status);
+          setUsageHistory((value) => [
+            ...value.slice(-99),
+            usageFromStatus(event.status),
+          ]);
           setRunning(Boolean(event.status?.isStreaming));
         } else if (event.type === "agent_start") {
           setRunning(true);
@@ -218,6 +248,9 @@ function App() {
       setCwd(config.defaultCwd);
     });
     void loadSessions();
+    void api<{ profile: string }>("/api/permissions")
+      .then((settings) => setPermissionProfile(settings.profile))
+      .catch(() => undefined);
     void loadModels().catch((error) => setNotice(error.message));
     return () => eventsRef.current?.close();
   }, [loadSessions, loadModels]);
@@ -230,6 +263,22 @@ function App() {
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
   }, [theme]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = shortcutAction(event);
+      if (!action) return;
+      event.preventDefault();
+      if (action === "newSession") void newSession();
+      if (action === "focusPrompt")
+        window.dispatchEvent(new Event("pi-web:focus-prompt"));
+      if (action === "openDiff") setTab("diff");
+      if (action === "openValidation") setTab("validation");
+      if (action === "toggleHelp") setHelpOpen((value) => !value);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
 
   useEffect(() => {
     if (!selected) return;
@@ -291,11 +340,19 @@ function App() {
   }, [activeCwd, filePath, loadFiles]);
 
   async function newSession() {
+    let sessionCwd = cwd;
+    if (newWorktree) {
+      const worktree = await api<{ cwd: string }>("/api/worktrees", {
+        method: "POST",
+        body: JSON.stringify({ cwd, title: "parallel-task" }),
+      });
+      sessionCwd = worktree.cwd;
+    }
     const data = await api<{ session: SessionInfo; status: any }>(
       "/api/sessions",
       {
         method: "POST",
-        body: JSON.stringify({ cwd }),
+        body: JSON.stringify({ cwd: sessionCwd, permissionProfile }),
       },
     );
     setSelected(data.session);
@@ -309,7 +366,7 @@ function App() {
       "/api/sessions",
       {
         method: "POST",
-        body: JSON.stringify({ cwd }),
+        body: JSON.stringify({ cwd, permissionProfile }),
       },
     );
     setSelected(data.session);
@@ -440,6 +497,16 @@ function App() {
         activeFilePath={file?.path ?? ""}
         onCwd={setCwd}
         onNewSession={() => void newSession()}
+        permissionProfile={permissionProfile}
+        onPermissionProfile={(profile) => {
+          setPermissionProfile(profile);
+          void api("/api/permissions", {
+            method: "POST",
+            body: JSON.stringify({ profile }),
+          });
+        }}
+        newWorktree={newWorktree}
+        onNewWorktree={setNewWorktree}
         onSelectSession={setSelected}
         onDeleteSession={requestSessionDelete}
         onFilePath={setFilePath}
@@ -464,6 +531,54 @@ function App() {
               onClick={() => setTab("terminal")}
             >
               Terminal
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "diff"}
+              className={tab === "diff" ? "active" : ""}
+              onClick={() => setTab("diff")}
+            >
+              Diff
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "validation"}
+              className={tab === "validation" ? "active" : ""}
+              onClick={() => setTab("validation")}
+            >
+              Validate
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "preview"}
+              className={tab === "preview" ? "active" : ""}
+              onClick={() => setTab("preview")}
+            >
+              Preview
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "workbench"}
+              className={tab === "workbench" ? "active" : ""}
+              onClick={() => setTab("workbench")}
+            >
+              Workbench
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "evaluation"}
+              className={tab === "evaluation" ? "active" : ""}
+              onClick={() => setTab("evaluation")}
+            >
+              Eval
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "replay"}
+              className={tab === "replay" ? "active" : ""}
+              onClick={() => setTab("replay")}
+            >
+              Replay
             </button>
             <button
               role="tab"
@@ -521,8 +636,11 @@ function App() {
             streamThinking={streamThinking}
             running={running}
             hasSession={Boolean(selected)}
+            sessionId={selectedId}
             cwd={activeCwd}
             onOpenTerminal={() => setTab("terminal")}
+            onOpenDiff={() => setTab("diff")}
+            onOpenValidation={() => setTab("validation")}
             onSend={sendPrompt}
             onAbort={async () =>
               selectedId &&
@@ -550,6 +668,26 @@ function App() {
         {tab === "terminal" && (
           <TerminalPane cwd={activeCwd} theme={resolvedTheme(theme)} />
         )}
+        {tab === "diff" && (
+          <DiffPane
+            cwd={activeCwd}
+            sessionId={selectedId}
+            onNotice={setNotice}
+          />
+        )}
+        {tab === "validation" && (
+          <ValidationPanel cwd={activeCwd} onNotice={setNotice} />
+        )}
+        {tab === "preview" && <PreviewPane onNotice={setNotice} />}
+        {tab === "workbench" && (
+          <WorkbenchPane
+            cwd={activeCwd}
+            sessionId={selectedId}
+            onNotice={setNotice}
+          />
+        )}
+        {tab === "evaluation" && <EvaluationPane onNotice={setNotice} />}
+        {tab === "replay" && <ReplayPane />}
         {tab === "settings" && (
           <ControlRoom
             cwd={activeCwd}
@@ -557,6 +695,9 @@ function App() {
             status={status}
             models={models}
             tools={tools}
+            usageHistory={usageHistory}
+            permissionProfile={permissionProfile}
+            onPermissionProfile={setPermissionProfile}
             theme={theme}
             onTheme={setTheme}
             onModel={setModel}
@@ -572,6 +713,31 @@ function App() {
         )}
         {tab === "file" && <FilePane file={file} />}
       </main>
+      {helpOpen && (
+        <section
+          className="help-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+        >
+          <h2>Keyboard shortcuts</h2>
+          <dl>
+            <dt>Ctrl/⌘ N</dt>
+            <dd>New session</dd>
+            <dt>Ctrl/⌘ K</dt>
+            <dd>Focus prompt</dd>
+            <dt>Ctrl/⌘ D</dt>
+            <dd>Open diff review</dd>
+            <dt>Ctrl/⌘ Shift T</dt>
+            <dd>Open validation</dd>
+            <dt>?</dt>
+            <dd>Toggle this help</dd>
+          </dl>
+          <button type="button" onClick={() => setHelpOpen(false)}>
+            Close
+          </button>
+        </section>
+      )}
       {deleteTarget && (
         <div className="delete-dialog-backdrop">
           <button

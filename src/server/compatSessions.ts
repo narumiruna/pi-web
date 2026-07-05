@@ -8,6 +8,7 @@ import {
 import type { FastifyInstance } from "fastify";
 import { escapeHtml } from "./compatShared.js";
 import type { CompatDeps as Deps } from "./compatTypes.js";
+import { sessionExport } from "./productCore.js";
 
 export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
   app.get<{ Params: { id: string }; Querystring: { includeState?: string } }>(
@@ -61,18 +62,34 @@ export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
       };
     },
   );
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { format?: string } }>(
     "/api/sessions/:id/export",
     async (request, reply) => {
       const current = await sessionManagerFor(deps, request.params.id);
       if (!current) return reply.code(404).send({ error: "Session not found" });
+      const messages = contextWithEntryIds(current.manager).messages;
+      if (request.query.format === "json" || request.query.format === "md") {
+        const format = request.query.format;
+        return reply
+          .header(
+            "Content-Type",
+            format === "json"
+              ? "application/json; charset=utf-8"
+              : "text/markdown; charset=utf-8",
+          )
+          .header(
+            "Content-Disposition",
+            `attachment; filename="${request.params.id}.${format}"`,
+          )
+          .send(sessionExport(messages, format));
+      }
       return reply
         .header("Content-Type", "text/html; charset=utf-8")
         .header(
           "Content-Disposition",
           `attachment; filename="${request.params.id}.html"`,
         )
-        .send(transcriptHtml(contextWithEntryIds(current.manager).messages));
+        .send(transcriptHtml(messages));
     },
   );
 }
