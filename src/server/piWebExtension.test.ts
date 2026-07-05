@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parsePort, serviceReady } from "../../extensions/pi-web.js";
 
 describe("parsePort", () => {
@@ -15,13 +15,19 @@ describe("parsePort", () => {
 
 describe("serviceReady", () => {
   it("does not sleep past the timeout after failed attempts", async () => {
-    const started = Date.now();
-    const ready = await serviceReady("http://127.0.0.1:1", 20, async () => ({
-      ok: false,
-    }));
+    vi.useFakeTimers();
+    try {
+      const done = vi.fn();
+      void serviceReady("http://127.0.0.1:1", 20, async () => ({
+        ok: false,
+      })).then(done);
 
-    expect(ready).toBe(false);
-    expect(Date.now() - started).toBeLessThan(120);
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(done).toHaveBeenCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("aborts a hung poll attempt", async () => {

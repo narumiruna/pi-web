@@ -146,18 +146,29 @@ export default function piWebExtension(pi: ExtensionAPI) {
         `${serviceUrl.replace(/^http/, "ws")}/api/sync/pi-extension`,
       );
       socket = ws;
-      const timeout = setTimeout(
-        () => finish(() => reject(new Error("pi-web sync timed out"))),
-        3_000,
-      );
-      timeout.unref?.();
-
+      const closeSocket = () => {
+        if (socket === ws) socket = undefined;
+        try {
+          ws.close();
+        } catch {
+          // ignore close errors
+        }
+      };
       const finish = (done: () => void) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
         done();
       };
+      const timeout = setTimeout(
+        () =>
+          finish(() => {
+            closeSocket();
+            reject(new Error("pi-web sync timed out"));
+          }),
+        3_000,
+      );
+      timeout.unref?.();
 
       ws.addEventListener("open", () => {
         sendHello(ctx);
@@ -178,11 +189,7 @@ export default function piWebExtension(pi: ExtensionAPI) {
         if (syncEnabled) scheduleReconnect(currentCtx ?? ctx);
       });
       ws.addEventListener("error", () => {
-        try {
-          ws.close();
-        } catch {
-          // ignore close errors
-        }
+        closeSocket();
         finish(() => reject(new Error("pi-web sync failed")));
       });
     });
