@@ -659,7 +659,10 @@ export function ControlRoom({
               </div>
               <div className="summary-grid">
                 {themeOptions.map((option) => (
-                  <div key={option}>
+                  <div
+                    key={option}
+                    className={`theme-card ${option === theme ? "active" : ""}`}
+                  >
                     <span>{option === theme ? "Current" : "Theme"}</span>
                     <strong>{themeNames[option]}</strong>
                     <small>{themeDetails[option]}</small>

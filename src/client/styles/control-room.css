@@ -21,3 +21,13 @@
   background: color-mix(in srgb, var(--warning) 7%, var(--panel));
   color: var(--warning);
 }
+
+.theme-card.active {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.theme-card.active span {
+  color: var(--accent);
+}
