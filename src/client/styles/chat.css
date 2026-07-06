@@ -22,6 +22,15 @@
   margin-left: auto;
 }
 
+.messages:not(.empty-state) {
+  align-items: center;
+}
+
+.messages:not(.empty-state) > .message {
+  width: min(980px, 100%);
+  align-self: center;
+}
+
 @media (max-width: 920px) {
   .chat-controls-inner {
     flex-wrap: wrap;
