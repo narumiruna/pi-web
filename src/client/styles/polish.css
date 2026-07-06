@@ -465,6 +465,13 @@ pre,
   opacity: 0.55;
 }
 
+.slash-menu {
+  left: 50%;
+  right: auto;
+  width: min(980px, calc(100% - 36px));
+  transform: translateX(-50%);
+}
+
 .tools-list label {
   align-items: flex-start;
 }
@@ -704,9 +711,18 @@ pre,
 }
 
 .composer {
+  display: grid;
+  grid-template-columns: minmax(0, min(100%, 980px));
+  justify-content: center;
   padding: 12px 18px 14px;
   background: var(--panel);
   border-top: 1px solid var(--border);
+}
+
+.composer textarea,
+.composer-actions,
+.attachments {
+  width: 100%;
 }
 
 .composer textarea {
