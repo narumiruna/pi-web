@@ -620,19 +620,29 @@ pre,
   color: var(--accent);
 }
 
+.status-pill.info {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
 .state-badge.ok,
 .status-pill.ok {
   border-color: color-mix(in srgb, var(--success) 46%, var(--border));
   color: var(--success);
 }
 
+.status-pill.ok {
+  background: color-mix(in srgb, var(--success) 7%, var(--panel));
+}
+
 .status-pill.warning {
   border-color: color-mix(in srgb, var(--warning) 46%, var(--border));
+  background: color-mix(in srgb, var(--warning) 8%, var(--panel));
   color: var(--warning);
 }
 
 .status-pill.danger {
   border-color: color-mix(in srgb, var(--danger) 46%, var(--border));
+  background: color-mix(in srgb, var(--danger) 7%, var(--panel));
   color: var(--danger);
 }
 
@@ -756,6 +766,8 @@ pre,
 
 .control-room {
   gap: 14px;
+  grid-template-columns: minmax(0, 1280px);
+  justify-content: center;
   padding: 20px;
   background-color: var(--bg);
   background-image: radial-gradient(
@@ -763,6 +775,11 @@ pre,
     transparent 1px
   );
   background-size: 32px 32px;
+}
+
+.dashboard-hero,
+.settings-layout {
+  width: 100%;
 }
 
 .dashboard-hero {
