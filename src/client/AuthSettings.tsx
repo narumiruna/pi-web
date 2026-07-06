@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "./api";
 
 type JsonObject = Record<string, unknown>;
@@ -110,6 +110,17 @@ export function AuthSettings({
     }
   }
 
+  const orderedProviders = useMemo(
+    () =>
+      [...providers].sort((left, right) => {
+        const configuredDelta =
+          Number(providerConfigured(right)) - Number(providerConfigured(left));
+        if (configuredDelta) return configuredDelta;
+        return providerName(left).localeCompare(providerName(right));
+      }),
+    [providers],
+  );
+
   if (providers.length === 0)
     return <div className="empty-small">No model providers reported.</div>;
 
@@ -124,7 +135,7 @@ export function AuthSettings({
         </tr>
       </thead>
       <tbody>
-        {providers.map((provider) => {
+        {orderedProviders.map((provider) => {
           const id = providerId(provider);
           const configured = providerConfigured(provider);
           const name = providerName(provider);
