@@ -110,10 +110,22 @@ export function TerminalPane({
   }, [cwd, theme]);
 
   return (
-    <div
-      aria-label="Terminal"
-      className="terminal-tab terminal-shell"
-      ref={terminalRef}
-    />
+    <section className="terminal-tab terminal-panel" aria-label="Terminal">
+      <header className="terminal-header">
+        <div className="terminal-heading">
+          <div className="panel-title">Local shell</div>
+          <div className="terminal-cwd" title={cwd || "workspace"}>
+            {cwd || "workspace"}
+          </div>
+        </div>
+        <div className="terminal-status">
+          <span className="status-dot ok" aria-hidden="true" />
+          connected
+        </div>
+      </header>
+      <div className="terminal-frame">
+        <div className="terminal-shell" ref={terminalRef} />
+      </div>
+    </section>
   );
 }
