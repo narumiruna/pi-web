@@ -71,7 +71,10 @@ button.primary:hover,
 }
 
 button.primary:disabled,
-.primary:disabled {
+.primary:disabled,
+button.danger:disabled,
+button:disabled:hover,
+select:disabled:hover {
   background: var(--panel-2);
   border-color: var(--border);
   color: var(--muted);
