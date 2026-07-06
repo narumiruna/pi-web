@@ -1,0 +1,144 @@
+.file-viewer,
+.empty-file-pane {
+  gap: 12px;
+  padding: 18px;
+  overflow: auto;
+  background-color: var(--bg);
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--accent) 6%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 32px 32px;
+}
+
+.file-header,
+.file-preview-panel,
+.file-empty-card {
+  width: min(100%, 1280px);
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 70px;
+  padding: 12px 14px;
+  border-top: 2px solid var(--cyan);
+  border-radius: var(--radius-xl);
+}
+
+.file-heading {
+  min-width: 0;
+}
+
+.file-heading h2,
+.file-empty-card h2 {
+  margin: 2px 0;
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.file-path-full,
+.file-preview-meta {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-badges {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.file-preview-panel {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  border-radius: var(--radius-xl);
+}
+
+.file-preview-meta {
+  padding: 0 2px 10px;
+}
+
+.file-code {
+  height: calc(100% - 28px);
+  min-height: 420px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-2) 30%, var(--panel));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.file-image-frame {
+  display: grid;
+  min-height: 420px;
+  place-items: center;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--panel-2) 42%, var(--panel));
+}
+
+.file-image-frame .file-image {
+  max-width: 100%;
+  max-height: calc(100vh - 220px);
+  margin: 0;
+  object-fit: contain;
+}
+
+.file-binary-card,
+.file-empty-card {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  border-radius: var(--radius-xl);
+}
+
+.file-binary-card {
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--panel-2) 50%, var(--panel));
+}
+
+.file-binary-card p,
+.file-empty-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.empty-file-pane {
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 860px) {
+  .file-viewer,
+  .empty-file-pane {
+    padding: 12px;
+  }
+
+  .file-header {
+    display: grid;
+  }
+
+  .file-badges {
+    justify-content: flex-start;
+  }
+}
