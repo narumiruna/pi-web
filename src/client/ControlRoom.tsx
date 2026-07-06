@@ -582,7 +582,7 @@ export function ControlRoom({
                   const description = textField(skill, "description");
                   return (
                     <label
-                      className="compact-row"
+                      className={`compact-row skill-row ${enabled ? "active" : "disabled"}`}
                       key={filePath ?? name}
                       title={description}
                     >
