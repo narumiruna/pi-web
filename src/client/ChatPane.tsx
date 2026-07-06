@@ -109,127 +109,129 @@ export function ChatPane(props: {
   return (
     <div className="chat-tab">
       <div className="controls">
-        <div className="control-group model-controls">
-          <select
-            aria-label="Model"
-            disabled={!props.hasSession || props.models.length === 0}
-            title={
-              props.hasSession
-                ? "Model for the selected session"
-                : "Select or create a session before changing models"
-            }
-            value={
-              props.status?.model
-                ? `${props.status.model.provider}/${props.status.model.id}`
-                : ""
-            }
-            onChange={(event) => void props.onModel(event.target.value)}
-          >
-            <option value="">auto model</option>
-            {props.models.map((model) => (
-              <option
-                key={`${model.provider}/${model.id}`}
-                value={`${model.provider}/${model.id}`}
-              >
-                {model.name || model.id} · {model.provider}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Reasoning"
-            disabled={!props.hasSession}
-            title={
-              props.hasSession
-                ? "Reasoning level for the selected session"
-                : "Select or create a session before changing reasoning"
-            }
-            value={props.status?.thinkingLevel || "off"}
-            onChange={(event) => void props.onThinking(event.target.value)}
-          >
-            {THINKING.map((level) => (
-              <option key={level}>{level}</option>
-            ))}
-          </select>
-        </div>
-        <div className="control-group action-controls">
-          <button
-            disabled={!props.hasSession}
-            title={
-              props.hasSession
-                ? "Compact the selected session"
-                : "Select or create a session before compacting"
-            }
-            onClick={() => void props.onCompact()}
-          >
-            Compact
-          </button>
-          {props.running && (
-            <button className="danger" onClick={() => void props.onAbort()}>
-              Abort
-            </button>
-          )}
-          <details
-            className={`tools-menu ${props.hasSession ? "" : "disabled"}`}
-          >
-            <summary
-              aria-disabled={!props.hasSession}
+        <div className="chat-controls-inner">
+          <div className="control-group model-controls">
+            <select
+              aria-label="Model"
+              disabled={!props.hasSession || props.models.length === 0}
               title={
                 props.hasSession
-                  ? "Toggle tools for the selected session"
-                  : "Select or create a session before changing tools"
+                  ? "Model for the selected session"
+                  : "Select or create a session before changing models"
               }
-              onClick={(event) => {
-                if (!props.hasSession) event.preventDefault();
-              }}
+              value={
+                props.status?.model
+                  ? `${props.status.model.provider}/${props.status.model.id}`
+                  : ""
+              }
+              onChange={(event) => void props.onModel(event.target.value)}
             >
-              Tools ({activeToolNames.length}/{props.tools.length})
-            </summary>
-            <div className="tools-list">
-              {props.tools.map((tool) => {
-                const active = activeToolNames.includes(tool.name);
-                const risk = toolRiskLabel(tool.name);
-                return (
-                  <label key={tool.name} title={tool.description}>
-                    <input
-                      type="checkbox"
-                      disabled={!props.hasSession}
-                      checked={active}
-                      onChange={(event) => {
-                        const next = new Set(activeToolNames);
-                        if (event.target.checked) next.add(tool.name);
-                        else next.delete(tool.name);
-                        void props.onTools([...next]);
-                      }}
-                    />
-                    <span>
-                      <strong>{tool.name}</strong>
-                      <span className="tool-description">
-                        {tool.description || "No description"}
-                      </span>
-                      <span className="tool-labels">
-                        <span
-                          className={`state-badge ${active ? "ok" : "muted"}`}
-                        >
-                          {active ? "enabled" : "disabled"}
+              <option value="">auto model</option>
+              {props.models.map((model) => (
+                <option
+                  key={`${model.provider}/${model.id}`}
+                  value={`${model.provider}/${model.id}`}
+                >
+                  {model.name || model.id} · {model.provider}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Reasoning"
+              disabled={!props.hasSession}
+              title={
+                props.hasSession
+                  ? "Reasoning level for the selected session"
+                  : "Select or create a session before changing reasoning"
+              }
+              value={props.status?.thinkingLevel || "off"}
+              onChange={(event) => void props.onThinking(event.target.value)}
+            >
+              {THINKING.map((level) => (
+                <option key={level}>{level}</option>
+              ))}
+            </select>
+          </div>
+          <div className="control-group action-controls">
+            <button
+              disabled={!props.hasSession}
+              title={
+                props.hasSession
+                  ? "Compact the selected session"
+                  : "Select or create a session before compacting"
+              }
+              onClick={() => void props.onCompact()}
+            >
+              Compact
+            </button>
+            {props.running && (
+              <button className="danger" onClick={() => void props.onAbort()}>
+                Abort
+              </button>
+            )}
+            <details
+              className={`tools-menu ${props.hasSession ? "" : "disabled"}`}
+            >
+              <summary
+                aria-disabled={!props.hasSession}
+                title={
+                  props.hasSession
+                    ? "Toggle tools for the selected session"
+                    : "Select or create a session before changing tools"
+                }
+                onClick={(event) => {
+                  if (!props.hasSession) event.preventDefault();
+                }}
+              >
+                Tools ({activeToolNames.length}/{props.tools.length})
+              </summary>
+              <div className="tools-list">
+                {props.tools.map((tool) => {
+                  const active = activeToolNames.includes(tool.name);
+                  const risk = toolRiskLabel(tool.name);
+                  return (
+                    <label key={tool.name} title={tool.description}>
+                      <input
+                        type="checkbox"
+                        disabled={!props.hasSession}
+                        checked={active}
+                        onChange={(event) => {
+                          const next = new Set(activeToolNames);
+                          if (event.target.checked) next.add(tool.name);
+                          else next.delete(tool.name);
+                          void props.onTools([...next]);
+                        }}
+                      />
+                      <span>
+                        <strong>{tool.name}</strong>
+                        <span className="tool-description">
+                          {tool.description || "No description"}
                         </span>
-                        <span className="scope-badge">
-                          {scopeLabel(tool.sourceInfo?.scope)} scope
+                        <span className="tool-labels">
+                          <span
+                            className={`state-badge ${active ? "ok" : "muted"}`}
+                          >
+                            {active ? "enabled" : "disabled"}
+                          </span>
+                          <span className="scope-badge">
+                            {scopeLabel(tool.sourceInfo?.scope)} scope
+                          </span>
+                          {risk && <span className="risk-badge">{risk}</span>}
                         </span>
-                        {risk && <span className="risk-badge">{risk}</span>}
                       </span>
-                    </span>
-                  </label>
-                );
-              })}
-              {props.tools.length === 0 && (
-                <small>Select a session to load session-scoped tools.</small>
-              )}
-            </div>
-          </details>
-        </div>
-        <div className="control-group run-status" aria-live="polite">
-          <span className={`status-dot ${props.running ? "ok" : "muted"}`} />
-          {props.running ? "Running" : "Idle"}
+                    </label>
+                  );
+                })}
+                {props.tools.length === 0 && (
+                  <small>Select a session to load session-scoped tools.</small>
+                )}
+              </div>
+            </details>
+          </div>
+          <div className="control-group run-status" aria-live="polite">
+            <span className={`status-dot ${props.running ? "ok" : "muted"}`} />
+            {props.running ? "Running" : "Idle"}
+          </div>
         </div>
       </div>
       {empty ? (

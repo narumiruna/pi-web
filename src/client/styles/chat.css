@@ -1,0 +1,33 @@
+.chat-tab > .controls {
+  justify-content: center;
+}
+
+.chat-controls-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 1280px);
+  min-width: 0;
+}
+
+.chat-controls-inner .action-controls {
+  flex: 0 1 auto;
+}
+
+.chat-controls-inner .model-controls {
+  min-width: 0;
+}
+
+.chat-controls-inner .run-status {
+  margin-left: auto;
+}
+
+@media (max-width: 920px) {
+  .chat-controls-inner {
+    flex-wrap: wrap;
+  }
+
+  .chat-controls-inner .run-status {
+    margin-left: 0;
+  }
+}
