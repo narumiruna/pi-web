@@ -35,6 +35,7 @@ export function FilePane({ file }: { file: any }) {
     );
 
   const title = baseName(file.path);
+  const displayPath = file.path ? `./${file.path}` : "./";
   const kind = file.image ? "Image" : file.binary ? "Binary" : "Text";
   const details = [
     formatBytes(file.size),
@@ -50,8 +51,8 @@ export function FilePane({ file }: { file: any }) {
         <div className="file-heading">
           <div className="panel-title">Workspace file</div>
           <h2>{title}</h2>
-          <div className="file-path-full" title={file.path}>
-            {file.path}
+          <div className="file-path-full" title={displayPath}>
+            {displayPath}
           </div>
         </div>
         <div className="file-badges">
