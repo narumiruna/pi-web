@@ -71,6 +71,24 @@ function pathBaseName(path: string) {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
+function gitFileMeta(value: string) {
+  const rawStatus = value.slice(0, 2);
+  const path = value.length > 3 ? value.slice(3).trim() : value.trim();
+  const status = rawStatus.trim() || "changed";
+  const label = status.includes("?")
+    ? "untracked"
+    : status.includes("M")
+      ? "modified"
+      : status.includes("A")
+        ? "added"
+        : status.includes("D")
+          ? "deleted"
+          : status.includes("R")
+            ? "renamed"
+            : "changed";
+  return { label, path: path || value, status };
+}
+
 export function ControlRoom({
   cwd,
   selected,
@@ -386,12 +404,19 @@ export function ControlRoom({
               </div>
               {gitFiles.length > 0 ? (
                 <div className="compact-list git-file-list">
-                  {gitFiles.slice(0, 40).map((file) => (
-                    <div key={file} className="compact-row warning">
-                      <span className="status-dot warning" />
-                      <strong>{file}</strong>
-                    </div>
-                  ))}
+                  {gitFiles.slice(0, 40).map((file) => {
+                    const item = gitFileMeta(file);
+                    return (
+                      <div key={file} className="compact-row warning git-row">
+                        <span className="status-dot warning" />
+                        <span className="state-badge warning">
+                          {item.label}
+                        </span>
+                        <strong title={item.path}>{item.path}</strong>
+                        <code>{item.status}</code>
+                      </div>
+                    );
+                  })}
                   {gitFiles.length > 40 && (
                     <div className="empty-small">
                       +{gitFiles.length - 40} more files.

@@ -1,0 +1,23 @@
+.git-file-list .git-row {
+  grid-template-columns: auto max-content minmax(0, 1fr) auto;
+}
+
+.git-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-row code {
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.git-row .state-badge.warning {
+  border-color: color-mix(in srgb, var(--warning) 46%, var(--border));
+  background: color-mix(in srgb, var(--warning) 7%, var(--panel));
+  color: var(--warning);
+}
