@@ -31,3 +31,18 @@
 .theme-card.active span {
   color: var(--accent);
 }
+
+.tool-row.active {
+  border-color: color-mix(in srgb, var(--success) 18%, var(--border));
+  background: color-mix(in srgb, var(--success) 3%, var(--panel));
+}
+
+.tool-row.disabled {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--panel-2) 58%, var(--panel));
+}
+
+.tool-row.disabled strong,
+.tool-row.disabled .tool-description {
+  color: var(--muted);
+}

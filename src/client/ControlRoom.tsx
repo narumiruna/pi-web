@@ -515,7 +515,7 @@ export function ControlRoom({
                   const risk = toolRiskLabel(tool.name);
                   return (
                     <label
-                      className="compact-row tool-row"
+                      className={`compact-row tool-row ${active ? "active" : "disabled"}`}
                       key={tool.name}
                       title={tool.description}
                     >
