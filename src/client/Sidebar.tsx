@@ -263,17 +263,20 @@ export function Sidebar({
           <section className="panel sidebar-tab-panel files">
             <div className="panel-title">
               <span>Files</span>
-              {filePath && (
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() =>
-                    onFilePath(filePath.split("/").slice(0, -1).join("/"))
-                  }
-                >
-                  up
-                </button>
-              )}
+              <span className="file-panel-actions">
+                <span>{files.length} items</span>
+                {filePath && (
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() =>
+                      onFilePath(filePath.split("/").slice(0, -1).join("/"))
+                    }
+                  >
+                    up
+                  </button>
+                )}
+              </span>
             </div>
             <div className="file-path" title={filePath || "."}>
               {filePath || "."}
@@ -285,7 +288,7 @@ export function Sidebar({
                   <button
                     type="button"
                     key={entry.path}
-                    className={`file-row ${activeFile ? "active" : ""}`}
+                    className={`file-row ${entry.type} ${activeFile ? "active" : ""}`}
                     aria-current={activeFile ? "page" : undefined}
                     title={entry.path}
                     onClick={() => onOpenFile(entry)}

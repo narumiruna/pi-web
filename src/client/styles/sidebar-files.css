@@ -1,3 +1,9 @@
+.sidebar .file-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .sidebar .file-row {
   position: relative;
   display: flex;
@@ -21,6 +27,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar .file-row.directory .file-row-icon {
+  color: var(--accent);
+}
+
+.sidebar .file-row.directory .file-row-name {
+  font-weight: 650;
+}
+
+.sidebar .file-row.file .file-row-icon {
+  font-size: 10px;
 }
 
 .sidebar .file-row.active,
