@@ -25,7 +25,9 @@ const FILE_REFRESH_DEBOUNCE_MS = 150;
 
 function loadTheme(): Theme {
   const value = localStorage.getItem(THEME_STORAGE_KEY);
-  return value === "dark" || value === "light" ? value : "system";
+  return value === "dark" || value === "light" || value === "system"
+    ? value
+    : "light";
 }
 
 function resolvedTheme(theme: Theme): Exclude<Theme, "system"> {
@@ -436,20 +438,26 @@ function App() {
 
       <main className="main">
         <header className="topbar">
-          <div className="tabs">
+          <div className="tabs" role="tablist" aria-label="Primary panes">
             <button
+              role="tab"
+              aria-selected={tab === "chat"}
               className={tab === "chat" ? "active" : ""}
               onClick={() => setTab("chat")}
             >
               Chat
             </button>
             <button
+              role="tab"
+              aria-selected={tab === "terminal"}
               className={tab === "terminal" ? "active" : ""}
               onClick={() => setTab("terminal")}
             >
               Terminal
             </button>
             <button
+              role="tab"
+              aria-selected={tab === "settings"}
               className={tab === "settings" ? "active" : ""}
               onClick={() => setTab("settings")}
             >
@@ -457,6 +465,8 @@ function App() {
             </button>
             {file && (
               <button
+                role="tab"
+                aria-selected={tab === "file"}
                 className={tab === "file" ? "active" : ""}
                 onClick={() => setTab("file")}
               >
@@ -464,11 +474,23 @@ function App() {
               </button>
             )}
           </div>
-          <div className="statusline">
-            {status?.model
-              ? `${status.model.provider}/${status.model.id}`
-              : "auto model"}
-            {running ? " · running" : " · idle"}
+          <div
+            className={`statusline ${running ? "running" : "idle"}`}
+            aria-live="polite"
+          >
+            <span
+              className={`status-dot ${running ? "ok" : "muted"}`}
+              aria-hidden="true"
+            />
+            <span>
+              {status?.model
+                ? `${status.model.provider}/${status.model.id}`
+                : "auto model"}
+            </span>
+            <span className="status-separator" aria-hidden="true">
+              /
+            </span>
+            <strong>{running ? "running" : "idle"}</strong>
           </div>
         </header>
         {notice && (
@@ -515,7 +537,9 @@ function App() {
             commands={commands}
           />
         )}
-        {tab === "terminal" && <TerminalPane cwd={activeCwd} />}
+        {tab === "terminal" && (
+          <TerminalPane cwd={activeCwd} theme={resolvedTheme(theme)} />
+        )}
         {tab === "settings" && (
           <ControlRoom
             cwd={activeCwd}
