@@ -4,7 +4,46 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef } from "react";
 
-export function TerminalPane({ cwd }: { cwd: string }) {
+const terminalThemes = {
+  light: {
+    background: "#ffffff",
+    foreground: "#1f2328",
+    cursor: "#2563eb",
+    selectionBackground: "#dbeafe",
+    black: "#1f2328",
+    brightBlack: "#6e7781",
+    blue: "#2563eb",
+    brightBlue: "#60a5fa",
+    cyan: "#0891b2",
+    green: "#16a34a",
+    magenta: "#7c3aed",
+    red: "#ef4444",
+    yellow: "#ea580c",
+  },
+  dark: {
+    background: "#111827",
+    foreground: "#f2f4f7",
+    cursor: "#60a5fa",
+    selectionBackground: "#1e3a8a",
+    black: "#0f172a",
+    brightBlack: "#98a2b3",
+    blue: "#60a5fa",
+    brightBlue: "#93c5fd",
+    cyan: "#22d3ee",
+    green: "#4ade80",
+    magenta: "#a78bfa",
+    red: "#f87171",
+    yellow: "#fb923c",
+  },
+} as const;
+
+export function TerminalPane({
+  cwd,
+  theme = "light",
+}: {
+  cwd: string;
+  theme?: keyof typeof terminalThemes;
+}) {
   const terminalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -17,10 +56,7 @@ export function TerminalPane({ cwd }: { cwd: string }) {
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       fontSize: 13,
       scrollback: 5000,
-      theme: {
-        background: "#05070c",
-        foreground: "#d1fae5",
-      },
+      theme: terminalThemes[theme],
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
@@ -71,7 +107,7 @@ export function TerminalPane({ cwd }: { cwd: string }) {
       ws.close();
       terminal.dispose();
     };
-  }, [cwd]);
+  }, [cwd, theme]);
 
   return (
     <div
