@@ -17,6 +17,7 @@ type SidebarProps = {
   deletingSessionId: string;
   files: FileEntry[];
   filePath: string;
+  activeFilePath: string;
   onCwd: (value: string) => void;
   onNewSession: () => void;
   onSelectSession: (session: SessionInfo) => void;
@@ -74,6 +75,7 @@ export function Sidebar({
   deletingSessionId,
   files,
   filePath,
+  activeFilePath,
   onCwd,
   onNewSession,
   onSelectSession,
@@ -277,17 +279,24 @@ export function Sidebar({
               {filePath || "."}
             </div>
             <div className="file-list">
-              {files.map((entry) => (
-                <button
-                  type="button"
-                  key={entry.path}
-                  className="file-row"
-                  onClick={() => onOpenFile(entry)}
-                >
-                  <span>{entry.type === "directory" ? "▸" : "•"}</span>{" "}
-                  {entry.name}
-                </button>
-              ))}
+              {files.map((entry) => {
+                const activeFile = entry.path === activeFilePath;
+                return (
+                  <button
+                    type="button"
+                    key={entry.path}
+                    className={`file-row ${activeFile ? "active" : ""}`}
+                    aria-current={activeFile ? "page" : undefined}
+                    title={entry.path}
+                    onClick={() => onOpenFile(entry)}
+                  >
+                    <span className="file-row-icon" aria-hidden="true">
+                      {entry.type === "directory" ? "▸" : "•"}
+                    </span>
+                    <span className="file-row-name">{entry.name}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}

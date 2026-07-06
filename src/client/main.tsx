@@ -437,6 +437,7 @@ function App() {
         deletingSessionId={deletingSessionId}
         files={files}
         filePath={filePath}
+        activeFilePath={file?.path ?? ""}
         onCwd={setCwd}
         onNewSession={() => void newSession()}
         onSelectSession={setSelected}

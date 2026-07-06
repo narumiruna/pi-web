@@ -1,0 +1,38 @@
+.sidebar .file-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.sidebar .file-row-icon {
+  display: inline-grid;
+  flex: 0 0 14px;
+  place-items: center;
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 12px;
+}
+
+.sidebar .file-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar .file-row.active,
+.sidebar .file-row[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent);
+  color: var(--text);
+  font-weight: 650;
+}
+
+.sidebar .file-row.active .file-row-icon,
+.sidebar .file-row[aria-current="page"] .file-row-icon {
+  color: var(--accent);
+}
