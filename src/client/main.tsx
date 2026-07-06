@@ -43,6 +43,13 @@ function applyTheme(theme: Theme) {
   document.documentElement.style.colorScheme = next;
 }
 
+function noticeIcon(tone: ReturnType<typeof noticeTone>) {
+  if (tone === "warning") return "⚠";
+  if (tone === "danger") return "!";
+  if (tone === "ok") return "✓";
+  return "•";
+}
+
 function App() {
   const [defaultCwd, setDefaultCwd] = useState<string>("");
   const [cwd, setCwd] = useState<string>("");
@@ -419,6 +426,8 @@ function App() {
     }
   }
 
+  const currentNoticeTone = notice ? noticeTone(notice) : "info";
+
   return (
     <div className="app">
       <Sidebar
@@ -494,9 +503,9 @@ function App() {
           </div>
         </header>
         {notice && (
-          <div className={`notice ${noticeTone(notice)}`} role="status">
+          <div className={`notice ${currentNoticeTone}`} role="status">
             <span className="notice-icon" aria-hidden="true">
-              {noticeTone(notice) === "warning" ? "⚠" : "•"}
+              {noticeIcon(currentNoticeTone)}
             </span>
             <strong>{notice}</strong>
             <button type="button" onClick={() => setNotice("")}>

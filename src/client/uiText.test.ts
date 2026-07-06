@@ -9,6 +9,11 @@ describe("ui text helpers", () => {
     expect(nextStepFor(message)).toContain("active goal");
   });
 
+  it("marks gateway and availability failures as danger", () => {
+    expect(noticeTone("Bad Gateway")).toBe("danger");
+    expect(noticeTone("Git unavailable")).toBe("danger");
+  });
+
   it("names empty sessions without saying no session is selected", () => {
     expect(
       sessionTitle({

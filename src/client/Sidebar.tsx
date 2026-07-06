@@ -86,6 +86,7 @@ export function Sidebar({
   const [pane, setPane] = useState<SidebarPane>("sessions");
   const sidebarRef = useRef<HTMLElement | null>(null);
 
+  const canStartSession = Boolean(cwd.trim());
   const filteredSessions = useMemo(() => {
     const query = sessionFilter.trim().toLowerCase();
     if (!query) return sessions;
@@ -156,7 +157,17 @@ export function Sidebar({
               onChange={(event) => onCwd(event.target.value)}
             />
           </label>
-          <button type="button" className="primary" onClick={onNewSession}>
+          <button
+            type="button"
+            className="primary"
+            disabled={!canStartSession}
+            title={
+              canStartSession
+                ? "Create a session in this workspace"
+                : "Enter a workspace path before creating a session"
+            }
+            onClick={onNewSession}
+          >
             New session
           </button>
         </section>
@@ -238,7 +249,11 @@ export function Sidebar({
                 );
               })}
               {filteredSessions.length === 0 && (
-                <div className="empty-small">No matching sessions.</div>
+                <div className="empty-small">
+                  {sessionFilter.trim()
+                    ? "No matching sessions."
+                    : "No sessions yet."}
+                </div>
               )}
             </div>
           </section>

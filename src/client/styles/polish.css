@@ -48,6 +48,15 @@ summary:focus-visible {
   outline-offset: 2px;
 }
 
+button:disabled,
+select:disabled,
+input:disabled,
+textarea:disabled {
+  background: var(--panel-2);
+  color: var(--muted);
+  opacity: 1;
+}
+
 button.primary,
 .primary {
   color: #ffffff;
@@ -59,6 +68,13 @@ button.primary:hover,
 .primary:hover {
   background: color-mix(in srgb, var(--accent) 88%, #000000);
   border-color: color-mix(in srgb, var(--accent) 88%, #000000);
+}
+
+button.primary:disabled,
+.primary:disabled {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--muted);
 }
 
 button.secondary,
@@ -142,14 +158,18 @@ pre,
 
 .workspace-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  align-items: end;
+  align-items: stretch;
   border-top: 2px solid var(--cyan);
 }
 
 .workspace-input {
   min-width: 0;
+}
+
+.workspace-panel .primary {
+  width: 100%;
 }
 
 .sidebar-tab-buttons {
@@ -352,9 +372,27 @@ pre,
   box-shadow: var(--shadow-soft);
 }
 
+.notice-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--accent);
+  font-family: var(--mono-font);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .notice.warning {
   border-left-color: var(--warning);
   background: color-mix(in srgb, var(--warning) 7%, var(--panel));
+}
+
+.notice.warning .notice-icon {
+  color: var(--warning);
 }
 
 .notice.danger {
@@ -362,9 +400,17 @@ pre,
   background: color-mix(in srgb, var(--danger) 6%, var(--panel));
 }
 
+.notice.danger .notice-icon {
+  color: var(--danger);
+}
+
 .notice.ok {
   border-left-color: var(--success);
   background: color-mix(in srgb, var(--success) 6%, var(--panel));
+}
+
+.notice.ok .notice-icon {
+  color: var(--success);
 }
 
 .chat-tab > .controls {
@@ -412,6 +458,11 @@ pre,
   border-radius: var(--radius-lg);
   background: var(--panel);
   box-shadow: var(--shadow-card);
+}
+
+.tools-menu.disabled summary {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .tools-list label {

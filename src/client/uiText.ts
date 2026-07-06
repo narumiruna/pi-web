@@ -5,7 +5,13 @@ export type NoticeTone = "warning" | "danger" | "ok" | "info";
 export function noticeTone(message: string): NoticeTone {
   const text = message.toLowerCase();
   if (text.includes("rejected") || text.includes("warning")) return "warning";
-  if (text.includes("error") || text.includes("failed")) return "danger";
+  if (
+    text.includes("error") ||
+    text.includes("failed") ||
+    text.includes("bad gateway") ||
+    text.includes("unavailable")
+  )
+    return "danger";
   if (
     text.includes("saved") ||
     text.includes("updated") ||
