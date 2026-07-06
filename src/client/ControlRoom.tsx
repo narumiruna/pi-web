@@ -554,11 +554,12 @@ export function ControlRoom({
                   const filePath = textField(skill, "filePath");
                   const enabled = !boolField(skill, "disableModelInvocation");
                   const name = textField(skill, "name") ?? "Unnamed skill";
+                  const description = textField(skill, "description");
                   return (
                     <label
                       className="compact-row"
                       key={filePath ?? name}
-                      title={textField(skill, "description")}
+                      title={description}
                     >
                       <input
                         type="checkbox"
@@ -570,10 +571,11 @@ export function ControlRoom({
                       />
                       <strong>{name}</strong>
                       <span>
-                        <span>
-                          {enabled
-                            ? "Model can invoke automatically"
-                            : "Hidden from model"}
+                        <span className="tool-description">
+                          {description ??
+                            (enabled
+                              ? "Model can invoke automatically"
+                              : "Hidden from model")}
                         </span>
                         <span className="tool-labels">
                           <span
