@@ -5,6 +5,13 @@ import type { ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
+import {
+  COMPOSER_ATTACH_IMAGE_EVENT,
+  COMPOSER_DRAFT_EVENT,
+  COMPOSER_FOCUS_EVENT,
+  type ComposerIntent,
+  composerIntentFromEvent,
+} from "./composerIntents";
 import { DiffPane } from "./DiffPane";
 import { EvaluationPane } from "./EvaluationPane";
 import { FilePane } from "./FilePane";
@@ -103,7 +110,9 @@ function App() {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
   const [file, setFile] = useState<any>(null);
+  const [composerIntents, setComposerIntents] = useState<ComposerIntent[]>([]);
   const eventsRef = useRef<EventSource | null>(null);
+  const composerIntentId = useRef(0);
 
   const selectedId = selected?.id;
   const activeCwd = selected?.cwd || cwd || defaultCwd;
@@ -274,10 +283,8 @@ function App() {
       if (!action) return;
       event.preventDefault();
       if (action === "newSession") void newSession();
-      if (action === "focusPrompt") {
-        setTab("chat");
-        window.dispatchEvent(new Event("pi-web:focus-prompt"));
-      }
+      if (action === "focusPrompt")
+        window.dispatchEvent(new Event(COMPOSER_FOCUS_EVENT));
       if (action === "openChat") setTab("chat");
       if (action === "openTerminal") setTab("terminal");
       if (action === "openDiff") setTab("diff");
@@ -299,6 +306,26 @@ function App() {
     helpReturnFocus.current?.focus?.();
     helpReturnFocus.current = null;
   }, [helpOpen]);
+
+  useEffect(() => {
+    const enqueue = (event: Event) => {
+      const intent = composerIntentFromEvent(
+        (composerIntentId.current += 1),
+        event,
+      );
+      if (!intent) return;
+      setComposerIntents((value) => [...value, intent]);
+      setTab("chat");
+    };
+    window.addEventListener(COMPOSER_DRAFT_EVENT, enqueue);
+    window.addEventListener(COMPOSER_ATTACH_IMAGE_EVENT, enqueue);
+    window.addEventListener(COMPOSER_FOCUS_EVENT, enqueue);
+    return () => {
+      window.removeEventListener(COMPOSER_DRAFT_EVENT, enqueue);
+      window.removeEventListener(COMPOSER_ATTACH_IMAGE_EVENT, enqueue);
+      window.removeEventListener(COMPOSER_FOCUS_EVENT, enqueue);
+    };
+  }, []);
 
   useEffect(() => {
     if (!selected) return;
@@ -405,6 +432,13 @@ function App() {
     });
     setRunning(false);
   }
+
+  const consumeComposerIntents = useCallback((ids: number[]) => {
+    const consumed = new Set(ids);
+    setComposerIntents((value) =>
+      value.filter((intent) => !consumed.has(intent.id)),
+    );
+  }, []);
 
   async function ensureSession(): Promise<SessionInfo> {
     if (selected) return selected;
@@ -725,6 +759,8 @@ function App() {
             tools={tools}
             onTools={saveTools}
             commands={commands}
+            composerIntents={composerIntents}
+            onComposerIntentsConsumed={consumeComposerIntents}
           />
         )}
         {tab === "terminal" && (

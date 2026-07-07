@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "./api";
+import { COMPOSER_DRAFT_EVENT } from "./composerIntents";
 
 const COMMANDS = [
   "npm run lint",
@@ -18,7 +19,7 @@ type ValidationResult = {
 };
 
 function draft(text: string) {
-  window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
+  window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: text }));
 }
 
 export function ValidationPanel({

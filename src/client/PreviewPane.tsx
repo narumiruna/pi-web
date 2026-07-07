@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { COMPOSER_ATTACH_IMAGE_EVENT } from "./composerIntents";
 import { previewUrlAllowed } from "./previewUrl";
 
 function attachImage(image: {
@@ -7,7 +8,7 @@ function attachImage(image: {
   previewUrl: string;
 }) {
   window.dispatchEvent(
-    new CustomEvent("pi-web:attach-image", { detail: image }),
+    new CustomEvent(COMPOSER_ATTACH_IMAGE_EVENT, { detail: image }),
   );
 }
 
