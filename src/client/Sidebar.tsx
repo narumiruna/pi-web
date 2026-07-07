@@ -1,5 +1,6 @@
 import type { CSSProperties, MouseEvent, PointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "./api";
 import type { FileEntry, SessionInfo } from "./types";
 import { sessionTitle } from "./uiText";
 
@@ -20,13 +21,19 @@ type SidebarProps = {
   activeFilePath: string;
   onCwd: (value: string) => void;
   onNewSession: () => void;
+  permissionProfile: string;
+  onPermissionProfile: (value: string) => void;
+  newWorktree: boolean;
+  onNewWorktree: (value: boolean) => void;
   onSelectSession: (session: SessionInfo) => void;
+  onSelectSearchResult: (session: SessionInfo, messageIndex: number) => void;
   onDeleteSession: (
     session: SessionInfo,
     event?: MouseEvent<HTMLElement>,
   ) => void;
   onFilePath: (path: string) => void;
   onOpenFile: (entry: FileEntry) => void;
+  usageLabelFor: (sessionId: string) => string;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -78,13 +85,28 @@ export function Sidebar({
   activeFilePath,
   onCwd,
   onNewSession,
+  permissionProfile,
+  onPermissionProfile,
+  newWorktree,
+  onNewWorktree,
   onSelectSession,
+  onSelectSearchResult,
   onDeleteSession,
   onFilePath,
   onOpenFile,
+  usageLabelFor,
 }: SidebarProps) {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sessionFilter, setSessionFilter] = useState("");
+  const [messageSearch, setMessageSearch] = useState("");
+  const [messageResults, setMessageResults] = useState<
+    Array<{
+      sessionId: string;
+      excerpt: string;
+      role?: string;
+      messageIndex?: number;
+    }>
+  >([]);
   const [pane, setPane] = useState<SidebarPane>("sessions");
   const sidebarRef = useRef<HTMLElement | null>(null);
 
@@ -105,6 +127,22 @@ export function Sidebar({
       JSON.stringify({ sidebarWidth }),
     );
   }, [sidebarWidth]);
+
+  async function searchMessages() {
+    if (!messageSearch.trim()) {
+      setMessageResults([]);
+      return;
+    }
+    const data = await api<{
+      results: Array<{
+        sessionId: string;
+        excerpt: string;
+        role?: string;
+        messageIndex?: number;
+      }>;
+    }>(`/api/search/sessions?q=${encodeURIComponent(messageSearch)}`);
+    setMessageResults(data.results);
+  }
 
   function startSidebarWidthResize(event: PointerEvent<HTMLElement>) {
     event.preventDefault();
@@ -159,6 +197,26 @@ export function Sidebar({
               onChange={(event) => onCwd(event.target.value)}
             />
           </label>
+          <label className="workspace-input">
+            <span className="panel-title">permission</span>
+            <select
+              className="input"
+              value={permissionProfile}
+              onChange={(event) => onPermissionProfile(event.target.value)}
+            >
+              <option value="safe">safe</option>
+              <option value="ask">ask</option>
+              <option value="full">full</option>
+            </select>
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={newWorktree}
+              onChange={(event) => onNewWorktree(event.target.checked)}
+            />
+            Parallel task in new worktree
+          </label>
           <button
             type="button"
             className="primary"
@@ -211,6 +269,46 @@ export function Sidebar({
               onChange={(event) => setSessionFilter(event.target.value)}
               placeholder="Search sessions"
             />
+            <div className="message-search-row">
+              <input
+                className="input sidebar-search"
+                value={messageSearch}
+                onChange={(event) => setMessageSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void searchMessages();
+                }}
+                placeholder="Search all messages"
+              />
+              <button type="button" onClick={() => void searchMessages()}>
+                Go
+              </button>
+            </div>
+            {messageResults.length > 0 && (
+              <div className="session-list search-results">
+                {messageResults.map((result) => {
+                  const session = sessions.find(
+                    (item) => item.id === result.sessionId,
+                  );
+                  return (
+                    <button
+                      type="button"
+                      className="session"
+                      key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
+                      disabled={!session}
+                      onClick={() =>
+                        session &&
+                        onSelectSearchResult(session, result.messageIndex ?? 0)
+                      }
+                    >
+                      <span className="session-heading">
+                        <span>{result.role ?? "message"}</span>
+                      </span>
+                      <small>{result.excerpt}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="session-list">
               {filteredSessions.map((session) => {
                 const title = sessionTitle(session);
@@ -229,12 +327,16 @@ export function Sidebar({
                     >
                       <span className="session-heading">
                         <span>{title}</span>
+                        {session.cwd.includes("/worktrees/") && (
+                          <em>worktree</em>
+                        )}
                         {active && <em>active</em>}
                       </span>
                       <small>{session.cwd}</small>
                       <span className="session-meta">
                         {formatRelativeTime(session.modified)} ·{" "}
-                        {session.messageCount} msgs
+                        {session.messageCount} msgs · usage{" "}
+                        {usageLabelFor(session.id)}
                       </span>
                     </button>
                     <button

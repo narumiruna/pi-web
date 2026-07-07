@@ -34,9 +34,12 @@ Local-first TypeScript web UI for [Pi Coding Agent](https://github.com/earendil-
 - Resume, rename, delete, export, fork, and inspect saved sessions from `~/.pi/agent/sessions`.
 - Switch model, thinking level, active tools, slash commands, prompt templates, and skills.
 - Paste images directly into the chat box with `Ctrl+V`, preview attachments, and send them with the prompt.
-- Use a web terminal tab backed by a persistent local shell.
+- Use a web terminal tab backed by a persistent local shell, save command snippets, and send recent output back to the chat draft.
 - Browse workspace files, read text files, preview images, and auto-refresh file changes.
-- Use the Control room tab for projects, workspaces, git status, machines, auth/API keys, model switching, tool toggles, model-invoked skill toggles, plugins, and pi packages.
+- Review git diffs with per-file and per-hunk revert, create checkpoints (including automatic pre-rewind safety checkpoints), rewind local changes, and run validation commands from package scripts.
+- Visualize agent task flow as Plan → Act → Verify, import GitHub issues, manage kanban task cards, and create draft PRs.
+- Preview localhost browser apps, attach screenshots, export sessions as HTML/JSON/Markdown with secret redaction, replay exports, and run golden-task evaluations (dry-run or full agent mode) with accept/reject review.
+- Use the Control room tab for auth/API keys, usage/cost estimates, diagnostics/troubleshooting, permissions safe mode, MCP/external tool config, repo rules, model switching, tool toggles, model-invoked skill toggles, and bookmarks.
 - Run in one Fastify process with a Vite/React client and a small compatibility layer for the routes this UI uses.
 
 ## Local development
@@ -102,10 +105,27 @@ Useful environment variables:
 
 - `HOST` / `PORT`: server bind host and port. CLI auto-falls back from 30141 only when PORT is not set.
 - `PI_WEB_CWD`: default workspace directory; falls back to `WORKSPACE_ROOT` then `process.cwd()`.
-- `PI_WEB_DATA_DIR`: project/machine/config storage directory; defaults to `~/.pi-web`.
+- `PI_WEB_DATA_DIR`: pi-web metadata storage for checkpoints, tasks, bookmarks, MCP config, permissions, and evaluations; defaults to `./data/pi-web`.
 - `PI_WEB_CONFIG`: config JSON path override.
 - `PI_WEB_SHELL`: shell used by web terminals; defaults to `/bin/sh`.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`: provider keys for container/runtime use.
+
+## Keyboard shortcuts
+
+- `Ctrl/⌘+N`: new session
+- `Ctrl/⌘+K`: focus prompt
+- `Ctrl/⌘+1` / `Ctrl/⌘+2`: switch to chat / terminal tab
+- `Ctrl/⌘+D`: open diff review
+- `Ctrl/⌘+Shift+T`: open validation
+- `Ctrl/⌘+.`: abort the running agent
+- `Ctrl/⌘+B`: toggle sidebar
+- `Ctrl/⌘+Enter`: send prompt from the composer
+- `Ctrl/⌘+Shift+L`: send recent terminal output to chat (terminal tab)
+- `?`: searchable shortcut/command help
+
+## Troubleshooting
+
+Open Control room → Diagnostics to check Node.js, agent directory, API key hints, workspace write access, and shell setup. Usage/cost values are provider/SDK estimates and may show `0`/`—` when unavailable.
 
 ## Checks
 

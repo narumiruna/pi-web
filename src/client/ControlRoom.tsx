@@ -1,75 +1,58 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AuthSettings, providerConfigured, providerName } from "./AuthSettings";
 import { api } from "./api";
+import {
+  AppearanceSection,
+  arrayField,
+  BookmarksSection,
+  boolField,
+  count,
+  type DashboardValue,
+  DiagnosticsSection,
+  field,
+  type JsonObject,
+  McpSection,
+  object,
+  pathBaseName,
+  RulesSection,
+  routeProjectId,
+  shortTime,
+  textField,
+  themeNames,
+  UsageSection,
+} from "./controlSections";
 import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
 import { scopeLabel, sessionTitle, toolRiskLabel } from "./uiText";
+import type { UsageSnapshot } from "./usage";
 
-type JsonObject = Record<string, unknown>;
-type DashboardValue =
-  | JsonObject
-  | unknown[]
-  | string
-  | number
-  | boolean
-  | null
-  | undefined;
 type StatusSnapshot = {
   model?: { provider?: string; id?: string };
   isStreaming?: boolean;
 } | null;
-type Section = "session" | "git" | "model" | "tools" | "skills" | "appearance";
+type Section =
+  | "session"
+  | "git"
+  | "model"
+  | "tools"
+  | "skills"
+  | "usage"
+  | "diagnostics"
+  | "rules"
+  | "mcp"
+  | "permissions"
+  | "bookmarks"
+  | "appearance";
 
 type LoadedData = {
   auth?: DashboardValue;
   skills?: DashboardValue;
   git?: DashboardValue;
+  diagnostics?: DashboardValue;
+  instructions?: DashboardValue;
+  mcp?: DashboardValue;
+  bookmarks?: DashboardValue;
+  permissions?: DashboardValue;
 };
-
-const object = (value: DashboardValue) =>
-  value && !Array.isArray(value) && typeof value === "object"
-    ? (value as JsonObject)
-    : undefined;
-const field = (value: DashboardValue, key: string) =>
-  object(value)?.[key] as DashboardValue;
-const arrayField = (value: DashboardValue, key: string): DashboardValue[] =>
-  Array.isArray(field(value, key))
-    ? (field(value, key) as DashboardValue[])
-    : [];
-const textField = (value: DashboardValue, key: string) => {
-  const result = field(value, key);
-  return typeof result === "string" ? result : undefined;
-};
-const boolField = (value: DashboardValue, key: string) =>
-  field(value, key) === true;
-const count = (items: unknown[], label: string) =>
-  `${items.length} ${label}${items.length === 1 ? "" : "s"}`;
-const shortTime = (value?: string) =>
-  value ? new Date(value).toLocaleString() : "unknown";
-const themeNames: Record<Theme, string> = {
-  system: "System",
-  dark: "Dark",
-  light: "Light",
-};
-const themeDetails: Record<Theme, string> = {
-  system: "Follow device setting",
-  dark: "High-contrast dark workspace",
-  light: "Bright workspace for daylight",
-};
-const themeOptions: Theme[] = ["system", "dark", "light"];
-
-function routeProjectId(cwd: string) {
-  let binary = "";
-  for (const byte of new TextEncoder().encode(cwd))
-    binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
-}
-
-function pathBaseName(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).pop() || path;
-}
 
 function gitFileMeta(value: string) {
   const rawStatus = value.slice(0, 2);
@@ -95,6 +78,9 @@ export function ControlRoom({
   status,
   models,
   tools,
+  usageHistory,
+  permissionProfile,
+  onPermissionProfile,
   theme,
   onTheme,
   onModel,
@@ -103,12 +89,16 @@ export function ControlRoom({
   onNotice,
   onSessionsChanged,
   onAuthChanged,
+  onRulesSaved,
 }: {
   cwd: string;
   selected: SessionInfo | null;
   status: StatusSnapshot;
   models: ModelInfo[];
   tools: ToolInfo[];
+  usageHistory: UsageSnapshot[];
+  permissionProfile: string;
+  onPermissionProfile: (profile: string) => void;
   theme: Theme;
   onTheme: (theme: Theme) => void;
   onModel: (value: string) => Promise<void>;
@@ -117,12 +107,16 @@ export function ControlRoom({
   onNotice: (message: string) => void;
   onSessionsChanged: () => Promise<void>;
   onAuthChanged: () => Promise<void>;
+  onRulesSaved?: () => Promise<void>;
 }) {
   const [data, setData] = useState<LoadedData>({});
   const [loading, setLoading] = useState(false);
   const [section, setSection] = useState<Section>("session");
   const [savingSkill, setSavingSkill] = useState("");
   const [savingTools, setSavingTools] = useState(false);
+  const [editingPath, setEditingPath] = useState("");
+  const [editingContent, setEditingContent] = useState("");
+  const [mcpTestOutput, setMcpTestOutput] = useState("");
 
   const refresh = useCallback(async () => {
     if (!cwd) return;
@@ -144,6 +138,11 @@ export function ControlRoom({
         "git",
         `/api/projects/${routeProjectId(cwd)}/workspaces/root/git/status`,
       ),
+      read("diagnostics", `/api/diagnostics?cwd=${encodeURIComponent(cwd)}`),
+      read("instructions", `/api/instructions?cwd=${encodeURIComponent(cwd)}`),
+      read("mcp", "/api/mcp"),
+      read("bookmarks", "/api/bookmarks"),
+      read("permissions", "/api/permissions"),
     ]);
     setData(Object.fromEntries(entries) as LoadedData);
     setLoading(false);
@@ -177,6 +176,110 @@ export function ControlRoom({
     } finally {
       setSavingTools(false);
     }
+  }
+
+  async function savePermissionProfile(profile: string) {
+    await api("/api/permissions", {
+      method: "POST",
+      body: JSON.stringify({ profile }),
+    });
+    onPermissionProfile(profile);
+    await refresh();
+    onNotice("Permission profile saved");
+  }
+
+  async function addMcpServer() {
+    const name = prompt("MCP server name");
+    const command = prompt("stdio command");
+    if (!name || !command) return;
+    await api("/api/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        server: { type: "stdio", command, enabled: true },
+      }),
+    });
+    await refresh();
+    onNotice("MCP server saved");
+  }
+
+  async function toggleMcpServer(name: string, server: JsonObject) {
+    await api("/api/mcp", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        server: { ...server, enabled: server.enabled === false },
+      }),
+    });
+    await refresh();
+  }
+
+  async function removeMcpServer(name: string) {
+    if (!confirm(`Remove MCP server ${name}?`)) return;
+    await api("/api/mcp", {
+      method: "DELETE",
+      body: JSON.stringify({ name }),
+    });
+    await refresh();
+    onNotice(`MCP server ${name} removed (backup written)`);
+  }
+
+  async function testMcpServer(name: string, server: JsonObject) {
+    const command = typeof server.command === "string" ? server.command : "";
+    if (!command) {
+      setMcpTestOutput(`${name}: no command configured`);
+      return;
+    }
+    const result = await api<{ ok: boolean; code: number; output: string }>(
+      "/api/mcp/test",
+      {
+        method: "POST",
+        body: JSON.stringify({ command, cwd }),
+      },
+    );
+    setMcpTestOutput(
+      `${name}: ${result.ok ? "ok" : `exit ${result.code}`}\n${result.output}`.slice(
+        0,
+        2000,
+      ),
+    );
+  }
+
+  async function restoreMcpBackup() {
+    await api("/api/mcp/restore", { method: "POST", body: "{}" });
+    await refresh();
+    onNotice("MCP config restored from backup");
+  }
+
+  async function openInstructionEditor(path: string) {
+    const current = await api<{ content: string }>(
+      `/api/instructions?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`,
+    ).catch(() => ({ content: "" }));
+    setEditingPath(path);
+    setEditingContent(current.content);
+  }
+
+  async function saveInstruction() {
+    if (!editingPath) return;
+    await api("/api/instructions", {
+      method: "PATCH",
+      body: JSON.stringify({ cwd, path: editingPath, content: editingContent }),
+    });
+    setEditingPath("");
+    setEditingContent("");
+    await refresh();
+    await onRulesSaved?.();
+    onNotice(`${editingPath} saved (backup written)`);
+  }
+
+  async function restoreInstruction(path: string) {
+    await api("/api/instructions", {
+      method: "PATCH",
+      body: JSON.stringify({ cwd, path, restore: true }),
+    });
+    await refresh();
+    await onRulesSaved?.();
+    onNotice(`${path} restored from backup`);
   }
 
   async function setSkillInvocation(skill: DashboardValue, enabled: boolean) {
@@ -243,6 +346,13 @@ export function ControlRoom({
   const enabledSkills = skills.filter(
     (skill) => !boolField(skill, "disableModelInvocation"),
   );
+  const usage = usageHistory.at(-1);
+  const diagnosticItems = arrayField(data.diagnostics, "items");
+  const instructionFiles = arrayField(data.instructions, "files");
+  const mcpServers = object(field(data.mcp, "config"))?.servers as
+    | Record<string, unknown>
+    | undefined;
+  const bookmarks = arrayField(data.bookmarks, "bookmarks");
   const selectedTitle = selected
     ? sessionTitle(selected)
     : "No session selected";
@@ -267,6 +377,24 @@ export function ControlRoom({
     { key: "model", label: "Model & API Keys", meta: authSummary },
     { key: "tools", label: "Tools", meta: `${activeToolNames.length} enabled` },
     { key: "skills", label: "Skills", meta: `${enabledSkills.length} enabled` },
+    {
+      key: "usage",
+      label: "Usage",
+      meta: usage ? `$${usage.cost.toFixed(4)}` : "—",
+    },
+    {
+      key: "diagnostics",
+      label: "Diagnostics",
+      meta: `${diagnosticItems.length} checks`,
+    },
+    { key: "rules", label: "Rules", meta: `${instructionFiles.length} files` },
+    {
+      key: "mcp",
+      label: "MCP",
+      meta: `${Object.keys(mcpServers ?? {}).length} servers`,
+    },
+    { key: "permissions", label: "Permissions", meta: permissionProfile },
+    { key: "bookmarks", label: "Bookmarks", meta: `${bookmarks.length}` },
     { key: "appearance", label: "Appearance", meta: themeNames[theme] },
   ];
 
@@ -332,19 +460,26 @@ export function ControlRoom({
                   >
                     Rename
                   </button>
-                  <button
-                    type="button"
-                    disabled={!selected}
-                    onClick={() =>
-                      selected &&
-                      window.open(
-                        `/api/sessions/${selected.id}/export`,
-                        "_blank",
-                      )
-                    }
-                  >
-                    Export HTML
-                  </button>
+                  {[
+                    ["", "HTML"],
+                    ["?format=json", "JSON"],
+                    ["?format=md", "Markdown"],
+                  ].map(([query, label]) => (
+                    <button
+                      type="button"
+                      key={label}
+                      disabled={!selected}
+                      onClick={() =>
+                        selected &&
+                        window.open(
+                          `/api/sessions/${selected.id}/export${query}`,
+                          "_blank",
+                        )
+                      }
+                    >
+                      Export {label}
+                    </button>
+                  ))}
                   <button
                     type="button"
                     className="danger"
@@ -629,47 +764,78 @@ export function ControlRoom({
             </div>
           )}
 
-          {section === "appearance" && (
+          {section === "usage" && <UsageSection usageHistory={usageHistory} />}
+
+          {section === "diagnostics" && (
+            <DiagnosticsSection
+              items={diagnosticItems}
+              onRefresh={() => void refresh()}
+            />
+          )}
+
+          {section === "rules" && (
+            <RulesSection
+              files={instructionFiles}
+              editingPath={editingPath}
+              editingContent={editingContent}
+              onEdit={(path) => void openInstructionEditor(path)}
+              onRestore={(path) => void restoreInstruction(path)}
+              onChangeContent={setEditingContent}
+              onSave={() => void saveInstruction()}
+              onCancel={() => setEditingPath("")}
+            />
+          )}
+
+          {section === "mcp" && (
+            <McpSection
+              servers={mcpServers ?? {}}
+              testOutput={mcpTestOutput}
+              onAdd={() => void addMcpServer()}
+              onRestoreBackup={() => void restoreMcpBackup()}
+              onToggle={(name, server) => void toggleMcpServer(name, server)}
+              onTest={(name, server) => void testMcpServer(name, server)}
+              onRemove={(name) => void removeMcpServer(name)}
+            />
+          )}
+
+          {section === "permissions" && (
             <div className="settings-page">
               <div className="section-head">
                 <div>
-                  <div className="panel-title">Appearance</div>
-                  <h2>
-                    {themeNames[theme]}
-                    <span className="scope-badge">
-                      Applies to: This browser
-                    </span>
-                  </h2>
-                  <p>{themeDetails[theme]}</p>
+                  <div className="panel-title">Permissions</div>
+                  <h2>Safe mode profile</h2>
+                  <p>
+                    Pi SDK exposes no approval hook here, so this is
+                    profile-only tool limiting for new sessions.
+                  </p>
                 </div>
                 <select
-                  value={theme}
-                  onChange={(event) => {
-                    const next = event.target.value as Theme;
-                    onTheme(next);
-                    onNotice(`Theme changed to ${themeNames[next]}`);
-                  }}
+                  value={permissionProfile}
+                  onChange={(event) =>
+                    void savePermissionProfile(event.target.value)
+                  }
                 >
-                  {themeOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {themeNames[option]}
-                    </option>
-                  ))}
+                  <option value="safe">safe</option>
+                  <option value="ask">ask</option>
+                  <option value="full">full</option>
                 </select>
               </div>
-              <div className="summary-grid">
-                {themeOptions.map((option) => (
-                  <div
-                    key={option}
-                    className={`theme-card ${option === theme ? "active" : ""}`}
-                  >
-                    <span>{option === theme ? "Current" : "Theme"}</span>
-                    <strong>{themeNames[option]}</strong>
-                    <small>{themeDetails[option]}</small>
-                  </div>
-                ))}
-              </div>
+              <pre className="diff-output">
+                {JSON.stringify(data.permissions ?? {}, null, 2)}
+              </pre>
             </div>
+          )}
+
+          {section === "bookmarks" && (
+            <BookmarksSection bookmarks={bookmarks} />
+          )}
+
+          {section === "appearance" && (
+            <AppearanceSection
+              theme={theme}
+              onTheme={onTheme}
+              onNotice={onNotice}
+            />
           )}
         </section>
       </div>

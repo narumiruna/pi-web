@@ -1,11 +1,17 @@
 // biome-ignore-all lint: Pi SDK/websocket wire data is dynamic in this MVP.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
+import { DiffPane } from "./DiffPane";
+import { EvaluationPane } from "./EvaluationPane";
 import { FilePane } from "./FilePane";
+import { PreviewPane } from "./PreviewPane";
+import { ReplayPane } from "./ReplayPane";
 import { Sidebar } from "./Sidebar";
+import { shortcutAction, shortcutHelp } from "./shortcuts";
 import { TerminalPane } from "./TerminalPane";
 import type {
   AttachedImage,
@@ -16,9 +22,22 @@ import type {
   ToolInfo,
 } from "./types";
 import { noticeTone, sessionTitle } from "./uiText";
+import { type UsageSnapshot, usageFromStatus } from "./usage";
+import { ValidationPanel } from "./ValidationPanel";
+import { WorkbenchPane } from "./WorkbenchPane";
 import "./styles.css";
 
-type Tab = "chat" | "terminal" | "file" | "settings";
+type Tab =
+  | "chat"
+  | "terminal"
+  | "file"
+  | "settings"
+  | "diff"
+  | "validation"
+  | "preview"
+  | "workbench"
+  | "evaluation"
+  | "replay";
 
 const THEME_STORAGE_KEY = "pi-web.theme";
 const FILE_REFRESH_DEBOUNCE_MS = 150;
@@ -67,6 +86,19 @@ function App() {
   const [commands, setCommands] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("chat");
+  const [permissionProfile, setPermissionProfile] = useState("ask");
+  const [newWorktree, setNewWorktree] = useState(false);
+  const [usageHistory, setUsageHistory] = useState<UsageSnapshot[]>([]);
+  const [sessionUsage, setSessionUsage] = useState<
+    Record<string, UsageSnapshot>
+  >({});
+  const [lastValidation, setLastValidation] =
+    useState<ValidationSummary | null>(null);
+  const [locateMessage, setLocateMessage] = useState<number | null>(null);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpQuery, setHelpQuery] = useState("");
+  const helpReturnFocus = useRef<HTMLElement | null>(null);
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
@@ -141,11 +173,11 @@ function App() {
       eventsRef.current = es;
       es.onmessage = (message) => {
         const event = JSON.parse(message.data);
-        if (event.type === "connected") {
+        if (event.type === "connected" || event.type === "status") {
           setStatus(event.status);
-          setRunning(Boolean(event.status?.isStreaming));
-        } else if (event.type === "status") {
-          setStatus(event.status);
+          const snapshot = usageFromStatus(event.status);
+          setUsageHistory((value) => [...value.slice(-99), snapshot]);
+          setSessionUsage((value) => ({ ...value, [id]: snapshot }));
           setRunning(Boolean(event.status?.isStreaming));
         } else if (event.type === "agent_start") {
           setRunning(true);
@@ -218,7 +250,12 @@ function App() {
       setCwd(config.defaultCwd);
     });
     void loadSessions();
-    void loadModels().catch((error) => setNotice(error.message));
+    void api<{ profile: string }>("/api/permissions")
+      .then((settings) => setPermissionProfile(settings.profile))
+      .catch(() => undefined);
+    void loadModels().catch((error) =>
+      setNotice(`${error.message} — open Diagnostics to troubleshoot`),
+    );
     return () => eventsRef.current?.close();
   }, [loadSessions, loadModels]);
 
@@ -230,6 +267,38 @@ function App() {
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
   }, [theme]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = shortcutAction(event);
+      if (!action) return;
+      event.preventDefault();
+      if (action === "newSession") void newSession();
+      if (action === "focusPrompt") {
+        setTab("chat");
+        window.dispatchEvent(new Event("pi-web:focus-prompt"));
+      }
+      if (action === "openChat") setTab("chat");
+      if (action === "openTerminal") setTab("terminal");
+      if (action === "openDiff") setTab("diff");
+      if (action === "openValidation") setTab("validation");
+      if (action === "abortAgent") void abortAgent();
+      if (action === "toggleSidebar") setSidebarHidden((value) => !value);
+      if (action === "toggleHelp") setHelpOpen((value) => !value);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  useEffect(() => {
+    if (helpOpen) {
+      helpReturnFocus.current = document.activeElement as HTMLElement | null;
+      return;
+    }
+    setHelpQuery("");
+    helpReturnFocus.current?.focus?.();
+    helpReturnFocus.current = null;
+  }, [helpOpen]);
 
   useEffect(() => {
     if (!selected) return;
@@ -291,16 +360,50 @@ function App() {
   }, [activeCwd, filePath, loadFiles]);
 
   async function newSession() {
+    let sessionCwd = cwd;
+    if (newWorktree) {
+      const worktree = await api<{ cwd: string }>("/api/worktrees", {
+        method: "POST",
+        body: JSON.stringify({ cwd, title: "parallel-task" }),
+      });
+      sessionCwd = worktree.cwd;
+    }
     const data = await api<{ session: SessionInfo; status: any }>(
       "/api/sessions",
       {
         method: "POST",
-        body: JSON.stringify({ cwd }),
+        body: JSON.stringify({ cwd: sessionCwd, permissionProfile }),
       },
     );
     setSelected(data.session);
     setStatus(data.status);
     await loadSessions();
+  }
+
+  async function newWorktreeSession(title: string) {
+    const worktree = await api<{ cwd: string }>("/api/worktrees", {
+      method: "POST",
+      body: JSON.stringify({ cwd, title }),
+    });
+    const data = await api<{ session: SessionInfo; status: any }>(
+      "/api/sessions",
+      {
+        method: "POST",
+        body: JSON.stringify({ cwd: worktree.cwd, permissionProfile }),
+      },
+    );
+    setSelected(data.session);
+    setStatus(data.status);
+    await loadSessions();
+  }
+
+  async function abortAgent() {
+    if (!selectedId || !running) return;
+    await api(`/api/sessions/${selectedId}/abort`, {
+      method: "POST",
+      body: "{}",
+    });
+    setRunning(false);
   }
 
   async function ensureSession(): Promise<SessionInfo> {
@@ -309,7 +412,7 @@ function App() {
       "/api/sessions",
       {
         method: "POST",
-        body: JSON.stringify({ cwd }),
+        body: JSON.stringify({ cwd, permissionProfile }),
       },
     );
     setSelected(data.session);
@@ -429,7 +532,7 @@ function App() {
   const currentNoticeTone = notice ? noticeTone(notice) : "info";
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarHidden ? "sidebar-hidden" : ""}`}>
       <Sidebar
         cwd={cwd}
         sessions={sessions}
@@ -440,10 +543,28 @@ function App() {
         activeFilePath={file?.path ?? ""}
         onCwd={setCwd}
         onNewSession={() => void newSession()}
+        permissionProfile={permissionProfile}
+        onPermissionProfile={(profile) => {
+          setPermissionProfile(profile);
+          void api("/api/permissions", {
+            method: "POST",
+            body: JSON.stringify({ profile }),
+          });
+        }}
+        newWorktree={newWorktree}
+        onNewWorktree={setNewWorktree}
         onSelectSession={setSelected}
+        onSelectSearchResult={(session, messageIndex) => {
+          setSelected(session);
+          setLocateMessage(messageIndex);
+        }}
         onDeleteSession={requestSessionDelete}
         onFilePath={setFilePath}
         onOpenFile={(entry) => void openFile(entry)}
+        usageLabelFor={(id) => {
+          const snapshot = sessionUsage[id];
+          return snapshot ? `$${snapshot.cost.toFixed(4)}` : "—";
+        }}
       />
 
       <main className="main">
@@ -464,6 +585,54 @@ function App() {
               onClick={() => setTab("terminal")}
             >
               Terminal
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "diff"}
+              className={tab === "diff" ? "active" : ""}
+              onClick={() => setTab("diff")}
+            >
+              Diff
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "validation"}
+              className={tab === "validation" ? "active" : ""}
+              onClick={() => setTab("validation")}
+            >
+              Validate
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "preview"}
+              className={tab === "preview" ? "active" : ""}
+              onClick={() => setTab("preview")}
+            >
+              Preview
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "workbench"}
+              className={tab === "workbench" ? "active" : ""}
+              onClick={() => setTab("workbench")}
+            >
+              Workbench
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "evaluation"}
+              className={tab === "evaluation" ? "active" : ""}
+              onClick={() => setTab("evaluation")}
+            >
+              Eval
+            </button>
+            <button
+              role="tab"
+              aria-selected={tab === "replay"}
+              className={tab === "replay" ? "active" : ""}
+              onClick={() => setTab("replay")}
+            >
+              Replay
             </button>
             <button
               role="tab"
@@ -509,6 +678,17 @@ function App() {
               {noticeIcon(currentNoticeTone)}
             </span>
             <strong>{notice}</strong>
+            {notice.includes("Diagnostics") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("settings");
+                  setNotice("");
+                }}
+              >
+                Open diagnostics
+              </button>
+            )}
             <button type="button" onClick={() => setNotice("")}>
               Dismiss
             </button>
@@ -521,16 +701,16 @@ function App() {
             streamThinking={streamThinking}
             running={running}
             hasSession={Boolean(selected)}
+            sessionId={selectedId}
             cwd={activeCwd}
             onOpenTerminal={() => setTab("terminal")}
+            onOpenDiff={() => setTab("diff")}
+            onOpenValidation={() => setTab("validation")}
             onSend={sendPrompt}
-            onAbort={async () =>
-              selectedId &&
-              api(`/api/sessions/${selectedId}/abort`, {
-                method: "POST",
-                body: "{}",
-              }).then(() => setRunning(false))
-            }
+            onAbort={abortAgent}
+            lastValidation={lastValidation}
+            locateMessage={locateMessage}
+            onLocated={() => setLocateMessage(null)}
             onCompact={async () =>
               selectedId &&
               api(`/api/sessions/${selectedId}/compact`, {
@@ -550,6 +730,34 @@ function App() {
         {tab === "terminal" && (
           <TerminalPane cwd={activeCwd} theme={resolvedTheme(theme)} />
         )}
+        {tab === "diff" && (
+          <DiffPane
+            cwd={activeCwd}
+            sessionId={selectedId}
+            onNotice={setNotice}
+          />
+        )}
+        {tab === "validation" && (
+          <ValidationPanel
+            cwd={activeCwd}
+            onNotice={setNotice}
+            onResult={setLastValidation}
+          />
+        )}
+        {tab === "preview" && <PreviewPane onNotice={setNotice} />}
+        {tab === "workbench" && (
+          <WorkbenchPane
+            cwd={activeCwd}
+            sessionId={selectedId}
+            sessions={sessions}
+            onNotice={setNotice}
+            onOpenDiff={() => setTab("diff")}
+            onOpenValidation={() => setTab("validation")}
+            onOpenWorktreeSession={newWorktreeSession}
+          />
+        )}
+        {tab === "evaluation" && <EvaluationPane onNotice={setNotice} />}
+        {tab === "replay" && <ReplayPane />}
         {tab === "settings" && (
           <ControlRoom
             cwd={activeCwd}
@@ -557,6 +765,9 @@ function App() {
             status={status}
             models={models}
             tools={tools}
+            usageHistory={usageHistory}
+            permissionProfile={permissionProfile}
+            onPermissionProfile={setPermissionProfile}
             theme={theme}
             onTheme={setTheme}
             onModel={setModel}
@@ -568,10 +779,64 @@ function App() {
               setSelected(null);
             }}
             onAuthChanged={loadModels}
+            onRulesSaved={async () => {
+              await loadCommands(selectedId);
+              await loadTools(selectedId);
+            }}
           />
         )}
         {tab === "file" && <FilePane file={file} />}
       </main>
+      {helpOpen && (
+        <section
+          className="help-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+        >
+          <h2>Keyboard shortcuts</h2>
+          <input
+            className="input"
+            value={helpQuery}
+            onChange={(event) => setHelpQuery(event.target.value)}
+            placeholder="Search shortcuts and commands"
+          />
+          <dl>
+            {shortcutHelp
+              .filter(
+                ([keys, label]) =>
+                  !helpQuery.trim() ||
+                  `${keys} ${label}`
+                    .toLowerCase()
+                    .includes(helpQuery.trim().toLowerCase()),
+              )
+              .map(([keys, label]) => (
+                <div key={keys}>
+                  <dt>{keys}</dt>
+                  <dd>{label}</dd>
+                </div>
+              ))}
+            {commands
+              .filter(
+                (cmd) =>
+                  helpQuery.trim() &&
+                  String(cmd.name ?? "")
+                    .toLowerCase()
+                    .includes(helpQuery.trim().toLowerCase()),
+              )
+              .slice(0, 8)
+              .map((cmd) => (
+                <div key={`cmd-${cmd.name}`}>
+                  <dt>/{cmd.name}</dt>
+                  <dd>{cmd.description || "Session command"}</dd>
+                </div>
+              ))}
+          </dl>
+          <button type="button" onClick={() => setHelpOpen(false)}>
+            Close
+          </button>
+        </section>
+      )}
       {deleteTarget && (
         <div className="delete-dialog-backdrop">
           <button
