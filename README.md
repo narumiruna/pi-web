@@ -95,7 +95,7 @@ UV_VERSION=0.11.26 PYTHON_VERSION=3.12 RUST_VERSION=1 docker compose build
 
 Compose sets `WORKSPACE_ROOT=/workspace` and mounts:
 
-- `./data/pi/agent:/home/node/.pi/agent` for Pi config/auth/sessions.
+- `./data/pi/agent:/home/node/.pi/agent` for Pi config/auth/sessions and pi-web metadata.
 - `./data/workspace:/workspace` in `compose.yml`.
 - `./:/workspace` in `compose.dev.yml`.
 
@@ -105,7 +105,7 @@ Useful environment variables:
 
 - `HOST` / `PORT`: server bind host and port. CLI auto-falls back from 30141 only when PORT is not set.
 - `PI_WEB_CWD`: default workspace directory; falls back to `WORKSPACE_ROOT` then `process.cwd()`.
-- `PI_WEB_DATA_DIR`: pi-web metadata storage for checkpoints, tasks, bookmarks, MCP config, permissions, and evaluations; defaults to `./data/pi-web`.
+- `PI_WEB_DATA_DIR`: pi-web metadata storage for checkpoints, tasks, bookmarks, MCP config, permissions, and evaluations; defaults to `$PI_CODING_AGENT_DIR/pi-web` or `~/.pi/agent/pi-web`.
 - `PI_WEB_CONFIG`: config JSON path override.
 - `PI_WEB_SHELL`: shell used by web terminals; defaults to `/bin/sh`.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`: provider keys for container/runtime use.
