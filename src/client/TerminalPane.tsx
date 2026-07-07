@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
+import { COMPOSER_DRAFT_EVENT } from "./composerIntents";
 import {
   type CommandSnippet,
   hasSecretLikeText,
@@ -13,7 +14,7 @@ import {
 const SNIPPETS_KEY = "pi-web.terminal-snippets";
 
 function draft(text: string) {
-  window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
+  window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: text }));
 }
 
 const terminalThemes = {

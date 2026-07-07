@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +25,7 @@ import {
   parseIssueReference,
   permissionSettings,
   prCreateArgs,
+  productDataDir,
   readMcpConfig,
   redactSecrets,
   removeWorktree,
@@ -39,7 +47,7 @@ import {
 } from "./productCore.js";
 
 async function tempDir(prefix: string) {
-  return mkdtemp(join(tmpdir(), prefix));
+  return realpath(await mkdtemp(join(tmpdir(), prefix)));
 }
 
 async function repo() {
@@ -58,6 +66,23 @@ describe("product core", () => {
     process.env.PI_WEB_DATA_DIR = await tempDir("pi-web-data-");
   });
 
+  it("defaults product metadata under the pi agent data directory", async () => {
+    const dataDir = process.env.PI_WEB_DATA_DIR;
+    const agentDir = process.env.PI_CODING_AGENT_DIR;
+    const dir = await tempDir("pi-web-agent-");
+    try {
+      delete process.env.PI_WEB_DATA_DIR;
+      process.env.PI_CODING_AGENT_DIR = join(dir, "agent");
+
+      expect(productDataDir()).toBe(join(dir, "agent", "pi-web"));
+    } finally {
+      if (dataDir === undefined) delete process.env.PI_WEB_DATA_DIR;
+      else process.env.PI_WEB_DATA_DIR = dataDir;
+      if (agentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = agentDir;
+    }
+  });
+
   it("reads git diff and reverts a file", async () => {
     const dir = await repo();
     await writeFile(join(dir, "file.txt"), "two\n");
@@ -67,6 +92,19 @@ describe("product core", () => {
 
     await revertGitChange(dir, { path: "file.txt" });
     expect(await readFile(join(dir, "file.txt"), "utf8")).toBe("one\n");
+  });
+
+  it("includes staged-only changes in git diff patch and stat", async () => {
+    const dir = await repo();
+    await writeFile(join(dir, "file.txt"), "two\n");
+    await git(dir, ["add", "file.txt"]);
+
+    const diff = await gitDiff(dir);
+
+    expect(diff.files).toContainEqual({ status: "M", path: "file.txt" });
+    expect(diff.patch).toContain("-one");
+    expect(diff.patch).toContain("+two");
+    expect(diff.stat).toContain("file.txt");
   });
 
   it("creates and rewinds tracked and untracked checkpoint state", async () => {

@@ -29,9 +29,10 @@ const MAX_OUTPUT = 200_000;
 const MAX_CHECKPOINT_FILE_BYTES = 1024 * 1024;
 
 export function productDataDir() {
-  return resolve(
-    process.env.PI_WEB_DATA_DIR ?? join(process.cwd(), "data", "pi-web"),
-  );
+  const agentDir =
+    process.env.PI_CODING_AGENT_DIR ??
+    join(process.env.HOME ?? process.cwd(), ".pi", "agent");
+  return resolve(process.env.PI_WEB_DATA_DIR ?? join(agentDir, "pi-web"));
 }
 
 export async function ensureDir(path: string) {
@@ -124,8 +125,8 @@ export async function gitDiff(cwd: string) {
     };
   const repo = top.stdout.trim();
   const [patch, stat, status] = await Promise.all([
-    git(repo, ["diff", "--binary", "--src-prefix=a/", "--dst-prefix=b/"]),
-    git(repo, ["diff", "--stat"]),
+    git(repo, ["diff", "HEAD", "--binary"]),
+    git(repo, ["diff", "HEAD", "--stat"]),
     git(repo, ["status", "--porcelain=v1"]),
   ]);
   const files = status.stdout

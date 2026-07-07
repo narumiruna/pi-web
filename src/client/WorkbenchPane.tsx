@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { COMPOSER_DRAFT_EVENT } from "./composerIntents";
 import type { SessionInfo } from "./types";
 
 type Task = {
@@ -12,7 +13,7 @@ type Task = {
 const STATUSES = ["todo", "doing", "review", "done"];
 
 function draft(text: string) {
-  window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
+  window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: text }));
 }
 
 function isWorktreePath(cwd: string) {

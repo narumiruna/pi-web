@@ -3,6 +3,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildAgentTimeline, type ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
 import { getPastedImageFiles } from "./clipboardImages";
+import {
+  appendDraftText,
+  COMPOSER_DRAFT_EVENT,
+  type ComposerIntent,
+} from "./composerIntents";
 import { linkifyText } from "./textLinks";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
 import { nextStepFor, noticeTone, scopeLabel, toolRiskLabel } from "./uiText";
@@ -98,6 +103,8 @@ export function ChatPane(props: {
   tools: ToolInfo[];
   onTools: (tools: string[]) => Promise<void>;
   commands: any[];
+  composerIntents?: ComposerIntent[];
+  onComposerIntentsConsumed?: (ids: number[]) => void;
   lastValidation?: ValidationSummary | null;
   locateMessage?: number | null;
   onLocated?: () => void;
@@ -378,6 +385,8 @@ export function ChatPane(props: {
       <Composer
         running={props.running}
         commands={props.commands}
+        composerIntents={props.composerIntents ?? []}
+        onComposerIntentsConsumed={props.onComposerIntentsConsumed}
         onSend={props.onSend}
       />
     </div>
@@ -477,7 +486,7 @@ const MessageList = memo(function MessageList({
 });
 
 function draft(text: string) {
-  window.dispatchEvent(new CustomEvent("pi-web:draft", { detail: text }));
+  window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: text }));
 }
 
 const Message = memo(function Message({
@@ -677,10 +686,14 @@ function MessageContent({ content, cwd }: { content: any; cwd: string }) {
 function Composer({
   running,
   commands,
+  composerIntents,
+  onComposerIntentsConsumed,
   onSend,
 }: {
   running: boolean;
   commands: any[];
+  composerIntents: ComposerIntent[];
+  onComposerIntentsConsumed?: (ids: number[]) => void;
   onSend: (
     text: string,
     images?: AttachedImage[],
@@ -696,28 +709,16 @@ function Composer({
   );
 
   useEffect(() => {
-    const onDraft = (event: Event) => {
-      const detail = (event as CustomEvent<string>).detail;
-      if (typeof detail === "string")
-        setText((value) => `${value}${value ? "\n\n" : ""}${detail}`);
-      textInput.current?.focus();
-    };
-    const onAttach = (event: Event) => {
-      const detail = (event as CustomEvent<AttachedImage>).detail;
-      if (detail?.data && detail.mimeType)
-        setImages((value) => [...value, detail]);
-      textInput.current?.focus();
-    };
-    const onFocus = () => textInput.current?.focus();
-    window.addEventListener("pi-web:draft", onDraft);
-    window.addEventListener("pi-web:attach-image", onAttach);
-    window.addEventListener("pi-web:focus-prompt", onFocus);
-    return () => {
-      window.removeEventListener("pi-web:draft", onDraft);
-      window.removeEventListener("pi-web:attach-image", onAttach);
-      window.removeEventListener("pi-web:focus-prompt", onFocus);
-    };
-  }, []);
+    if (composerIntents.length === 0) return;
+    for (const intent of composerIntents) {
+      if (intent.type === "draft")
+        setText((value) => appendDraftText(value, intent.text));
+      if (intent.type === "attachImage")
+        setImages((value) => [...value, intent.image]);
+    }
+    textInput.current?.focus();
+    onComposerIntentsConsumed?.(composerIntents.map((intent) => intent.id));
+  }, [composerIntents, onComposerIntentsConsumed]);
 
   async function attach(files: FileList | File[]) {
     const imageFiles = [...files].filter((file) =>
