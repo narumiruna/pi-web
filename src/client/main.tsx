@@ -1,8 +1,14 @@
 // biome-ignore-all lint: Pi SDK/websocket wire data is dynamic in this MVP.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { AppNavigation, type AppTab } from "./AppNavigation";
 import type { ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
+import {
+  createLatestRequestGate,
+  createSingleFlight,
+  isCurrentSelection,
+} from "./asyncState";
 import { ChatPane } from "./ChatPane";
 import { ControlRoom } from "./ControlRoom";
 import {
@@ -17,6 +23,7 @@ import { EvaluationPane } from "./EvaluationPane";
 import { FilePane } from "./FilePane";
 import { PreviewPane } from "./PreviewPane";
 import { ReplayPane } from "./ReplayPane";
+import { isMobileLayout, shouldAutoHideSidebar } from "./responsiveLayout";
 import { Sidebar } from "./Sidebar";
 import { shortcutAction, shortcutHelp } from "./shortcuts";
 import { TerminalPane } from "./TerminalPane";
@@ -33,18 +40,6 @@ import { type UsageSnapshot, usageFromStatus } from "./usage";
 import { ValidationPanel } from "./ValidationPanel";
 import { WorkbenchPane } from "./WorkbenchPane";
 import "./styles.css";
-
-type Tab =
-  | "chat"
-  | "terminal"
-  | "file"
-  | "settings"
-  | "diff"
-  | "validation"
-  | "preview"
-  | "workbench"
-  | "evaluation"
-  | "replay";
 
 const THEME_STORAGE_KEY = "pi-web.theme";
 const FILE_REFRESH_DEBOUNCE_MS = 150;
@@ -92,17 +87,17 @@ function App() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [commands, setCommands] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<Tab>("chat");
+  const [tab, setTab] = useState<AppTab>("chat");
   const [permissionProfile, setPermissionProfile] = useState("ask");
   const [newWorktree, setNewWorktree] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [usageHistory, setUsageHistory] = useState<UsageSnapshot[]>([]);
-  const [sessionUsage, setSessionUsage] = useState<
-    Record<string, UsageSnapshot>
-  >({});
   const [lastValidation, setLastValidation] =
     useState<ValidationSummary | null>(null);
   const [locateMessage, setLocateMessage] = useState<number | null>(null);
-  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(() =>
+    isMobileLayout(window.innerWidth),
+  );
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpQuery, setHelpQuery] = useState("");
   const helpReturnFocus = useRef<HTMLElement | null>(null);
@@ -113,8 +108,17 @@ function App() {
   const [composerIntents, setComposerIntents] = useState<ComposerIntent[]>([]);
   const eventsRef = useRef<EventSource | null>(null);
   const composerIntentId = useRef(0);
+  const optimisticMessageId = useRef(0);
+  const sessionCreationFlight = useRef(
+    createSingleFlight<SessionInfo>(),
+  ).current;
+  const fileContentGate = useRef(createLatestRequestGate()).current;
+  const fileTreeGate = useRef(createLatestRequestGate()).current;
+  const previousViewportWidth = useRef(window.innerWidth);
 
   const selectedId = selected?.id;
+  const selectedRef = useRef<SessionInfo | null>(selected);
+  selectedRef.current = selected;
   const activeCwd = selected?.cwd || cwd || defaultCwd;
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
@@ -136,7 +140,8 @@ function App() {
       const data = await api<{ messages: any[] }>(
         `/api/sessions/${id}/messages`,
       );
-      setMessages(data.messages);
+      if (isCurrentSelection(id, selectedRef.current?.id))
+        setMessages(data.messages);
     },
     [selectedId],
   );
@@ -147,7 +152,7 @@ function App() {
       const data = await api<{ tools: ToolInfo[] }>(
         `/api/sessions/${id}/tools`,
       );
-      setTools(data.tools);
+      if (isCurrentSelection(id, selectedRef.current?.id)) setTools(data.tools);
     },
     [selectedId],
   );
@@ -158,7 +163,8 @@ function App() {
       const data = await api<{ commands: any[] }>(
         `/api/sessions/${id}/commands`,
       );
-      setCommands(data.commands);
+      if (isCurrentSelection(id, selectedRef.current?.id))
+        setCommands(data.commands);
     },
     [selectedId],
   );
@@ -169,6 +175,7 @@ function App() {
       const data = await api<{ running: boolean; status: any }>(
         `/api/sessions/${id}/status`,
       );
+      if (!isCurrentSelection(id, selectedRef.current?.id)) return;
       setStatus(data.status);
       setRunning(Boolean(data.status?.isStreaming));
     },
@@ -181,12 +188,12 @@ function App() {
       const es = new EventSource(`/api/sessions/${id}/events`);
       eventsRef.current = es;
       es.onmessage = (message) => {
+        if (!isCurrentSelection(id, selectedRef.current?.id)) return;
         const event = JSON.parse(message.data);
         if (event.type === "connected" || event.type === "status") {
           setStatus(event.status);
           const snapshot = usageFromStatus(event.status);
           setUsageHistory((value) => [...value.slice(-99), snapshot]);
-          setSessionUsage((value) => ({ ...value, [id]: snapshot }));
           setRunning(Boolean(event.status?.isStreaming));
         } else if (event.type === "agent_start") {
           setRunning(true);
@@ -248,7 +255,10 @@ function App() {
           setNotice(event.message);
         }
       };
-      es.onerror = () => setNotice("Event stream disconnected");
+      es.onerror = () => {
+        if (isCurrentSelection(id, selectedRef.current?.id))
+          setNotice("Event stream disconnected");
+      };
     },
     [loadMessages, loadSessions, loadStatus],
   );
@@ -278,11 +288,34 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    const onResize = () => {
+      const nextWidth = window.innerWidth;
+      if (shouldAutoHideSidebar(previousViewportWidth.current, nextWidth))
+        setSidebarHidden(true);
+      previousViewportWidth.current = nextWidth;
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !sidebarHidden &&
+        isMobileLayout(window.innerWidth)
+      ) {
+        event.preventDefault();
+        setSidebarHidden(true);
+        return;
+      }
       const action = shortcutAction(event);
       if (!action) return;
       event.preventDefault();
-      if (action === "newSession") void newSession();
+      if (action === "newSession")
+        void newSession().catch((error) =>
+          setNotice(error instanceof Error ? error.message : String(error)),
+        );
       if (action === "focusPrompt")
         window.dispatchEvent(new Event(COMPOSER_FOCUS_EVENT));
       if (action === "openChat") setTab("chat");
@@ -328,13 +361,22 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      eventsRef.current?.close();
+      eventsRef.current = null;
+      return;
+    }
     setCwd(selected.cwd);
     setTab("chat");
-    void loadMessages(selected.id);
-    void loadStatus(selected.id);
-    void loadTools(selected.id);
-    void loadCommands(selected.id);
+    void Promise.all([
+      loadMessages(selected.id),
+      loadStatus(selected.id),
+      loadTools(selected.id),
+      loadCommands(selected.id),
+    ]).catch((error) => {
+      if (isCurrentSelection(selected.id, selectedRef.current?.id))
+        setNotice(error instanceof Error ? error.message : String(error));
+    });
     connectEvents(selected.id);
   }, [
     selected,
@@ -346,16 +388,21 @@ function App() {
   ]);
 
   const loadFiles = useCallback(async () => {
-    if (!activeCwd) return;
+    const request = fileTreeGate.next();
+    if (!activeCwd) {
+      setFiles([]);
+      return;
+    }
     try {
       const data = await api<{ entries: FileEntry[] }>(
         `/api/files/tree?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(filePath)}`,
       );
-      setFiles(data.entries);
+      if (fileTreeGate.isCurrent(request)) setFiles(data.entries);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      if (fileTreeGate.isCurrent(request))
+        setNotice(error instanceof Error ? error.message : String(error));
     }
-  }, [activeCwd, filePath]);
+  }, [activeCwd, filePath, fileTreeGate]);
 
   useEffect(() => {
     void loadFiles();
@@ -386,42 +433,67 @@ function App() {
     };
   }, [activeCwd, filePath, loadFiles]);
 
-  async function newSession() {
-    let sessionCwd = cwd;
-    if (newWorktree) {
+  function resetSessionView() {
+    fileContentGate.invalidate();
+    fileTreeGate.invalidate();
+    setMessages([]);
+    setStreamText("");
+    setStreamThinking("");
+    setRunning(false);
+    setStatus(null);
+    setTools([]);
+    setCommands([]);
+    setFiles([]);
+    setFilePath("");
+    setFile(null);
+  }
+
+  async function createAndSelectSession(
+    resolveCwd: () => Promise<string>,
+  ): Promise<SessionInfo> {
+    return sessionCreationFlight.run(async () => {
+      setCreatingSession(true);
+      try {
+        const sessionCwd = await resolveCwd();
+        const data = await api<{ session: SessionInfo; status: any }>(
+          "/api/sessions",
+          {
+            method: "POST",
+            body: JSON.stringify({ cwd: sessionCwd, permissionProfile }),
+          },
+        );
+        resetSessionView();
+        selectedRef.current = data.session;
+        setSelected(data.session);
+        setStatus(data.status);
+        connectEvents(data.session.id);
+        await loadSessions();
+        return data.session;
+      } finally {
+        setCreatingSession(false);
+      }
+    });
+  }
+
+  async function newSession(): Promise<SessionInfo> {
+    return createAndSelectSession(async () => {
+      if (!newWorktree) return cwd;
       const worktree = await api<{ cwd: string }>("/api/worktrees", {
         method: "POST",
         body: JSON.stringify({ cwd, title: "parallel-task" }),
       });
-      sessionCwd = worktree.cwd;
-    }
-    const data = await api<{ session: SessionInfo; status: any }>(
-      "/api/sessions",
-      {
-        method: "POST",
-        body: JSON.stringify({ cwd: sessionCwd, permissionProfile }),
-      },
-    );
-    setSelected(data.session);
-    setStatus(data.status);
-    await loadSessions();
+      return worktree.cwd;
+    });
   }
 
-  async function newWorktreeSession(title: string) {
-    const worktree = await api<{ cwd: string }>("/api/worktrees", {
-      method: "POST",
-      body: JSON.stringify({ cwd, title }),
-    });
-    const data = await api<{ session: SessionInfo; status: any }>(
-      "/api/sessions",
-      {
+  async function newWorktreeSession(title: string): Promise<void> {
+    await createAndSelectSession(async () => {
+      const worktree = await api<{ cwd: string }>("/api/worktrees", {
         method: "POST",
-        body: JSON.stringify({ cwd: worktree.cwd, permissionProfile }),
-      },
-    );
-    setSelected(data.session);
-    setStatus(data.status);
-    await loadSessions();
+        body: JSON.stringify({ cwd, title }),
+      });
+      return worktree.cwd;
+    });
   }
 
   async function abortAgent() {
@@ -441,19 +513,7 @@ function App() {
   }, []);
 
   async function ensureSession(): Promise<SessionInfo> {
-    if (selected) return selected;
-    const data = await api<{ session: SessionInfo; status: any }>(
-      "/api/sessions",
-      {
-        method: "POST",
-        body: JSON.stringify({ cwd, permissionProfile }),
-      },
-    );
-    setSelected(data.session);
-    setStatus(data.status);
-    connectEvents(data.session.id);
-    await loadSessions();
-    return data.session;
+    return selectedRef.current ?? newSession();
   }
 
   async function sendPrompt(
@@ -462,10 +522,17 @@ function App() {
     streamingBehavior?: "steer" | "followUp",
   ) {
     const session = await ensureSession();
-    if (!streamingBehavior)
+    const localMessageId = !streamingBehavior
+      ? `optimistic-${(optimisticMessageId.current += 1)}`
+      : undefined;
+    if (
+      localMessageId &&
+      isCurrentSelection(session.id, selectedRef.current?.id)
+    )
       setMessages((value) => [
         ...value,
         {
+          id: localMessageId,
           role: "user",
           content: images?.length
             ? [
@@ -479,23 +546,44 @@ function App() {
             : text,
         },
       ]);
-    setRunning(true);
-    await api(`/api/sessions/${session.id}/prompt`, {
-      method: "POST",
-      body: JSON.stringify({ text, images, streamingBehavior }),
-    });
+    const runningBeforeRequest = running;
+    if (isCurrentSelection(session.id, selectedRef.current?.id))
+      setRunning(true);
+    try {
+      await api(`/api/sessions/${session.id}/prompt`, {
+        method: "POST",
+        body: JSON.stringify({ text, images, streamingBehavior }),
+      });
+    } catch (error) {
+      if (isCurrentSelection(session.id, selectedRef.current?.id)) {
+        setRunning(runningBeforeRequest);
+        if (localMessageId)
+          setMessages((value) =>
+            value.filter((message) => message.id !== localMessageId),
+          );
+      }
+      setNotice(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 
   async function openFile(entry: FileEntry) {
+    const request = fileContentGate.next();
     if (entry.type === "directory") {
       setFilePath(entry.path);
       return;
     }
-    const data = await api<any>(
-      `/api/files/content?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(entry.path)}`,
-    );
-    setFile(data);
-    setTab("file");
+    try {
+      const data = await api<any>(
+        `/api/files/content?cwd=${encodeURIComponent(activeCwd)}&path=${encodeURIComponent(entry.path)}`,
+      );
+      if (!fileContentGate.isCurrent(request)) return;
+      setFile(data);
+      setTab("file");
+    } catch (error) {
+      if (fileContentGate.isCurrent(request))
+        setNotice(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function saveTools(next: string[]) {
@@ -544,18 +632,13 @@ function App() {
       if (selectedId === target.id) {
         eventsRef.current?.close();
         eventsRef.current = null;
+        selectedRef.current = null;
         setSelected(null);
-        setMessages([]);
-        setStreamText("");
-        setStreamThinking("");
-        setRunning(false);
-        setStatus(null);
-        setTools([]);
-        setCommands([]);
+        resetSessionView();
       }
       await loadSessions();
       setDeleteTarget(null);
-      setNotice(`Deleted session “${sessionTitle(target)}”`);
+      setNotice(`Deleted chat “${sessionTitle(target)}”`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -576,7 +659,13 @@ function App() {
         filePath={filePath}
         activeFilePath={file?.path ?? ""}
         onCwd={setCwd}
-        onNewSession={() => void newSession()}
+        onNewSession={() =>
+          void newSession().catch((error) =>
+            setNotice(error instanceof Error ? error.message : String(error)),
+          )
+        }
+        creatingSession={creatingSession}
+        onHide={() => setSidebarHidden(true)}
         permissionProfile={permissionProfile}
         onPermissionProfile={(profile) => {
           setPermissionProfile(profile);
@@ -587,127 +676,42 @@ function App() {
         }}
         newWorktree={newWorktree}
         onNewWorktree={setNewWorktree}
-        onSelectSession={setSelected}
+        onSelectSession={(session) => {
+          resetSessionView();
+          selectedRef.current = session;
+          setSelected(session);
+          if (isMobileLayout(window.innerWidth)) setSidebarHidden(true);
+        }}
         onSelectSearchResult={(session, messageIndex) => {
+          resetSessionView();
+          selectedRef.current = session;
           setSelected(session);
           setLocateMessage(messageIndex);
+          if (isMobileLayout(window.innerWidth)) setSidebarHidden(true);
         }}
         onDeleteSession={requestSessionDelete}
         onFilePath={setFilePath}
-        onOpenFile={(entry) => void openFile(entry)}
-        usageLabelFor={(id) => {
-          const snapshot = sessionUsage[id];
-          return snapshot ? `$${snapshot.cost.toFixed(4)}` : "—";
+        onOpenFile={(entry) => {
+          void openFile(entry);
+          if (entry.type === "file" && isMobileLayout(window.innerWidth))
+            setSidebarHidden(true);
         }}
       />
 
       <main className="main">
-        <header className="topbar">
-          <div className="tabs" role="tablist" aria-label="Primary panes">
-            <button
-              role="tab"
-              aria-selected={tab === "chat"}
-              className={tab === "chat" ? "active" : ""}
-              onClick={() => setTab("chat")}
-            >
-              Chat
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "terminal"}
-              className={tab === "terminal" ? "active" : ""}
-              onClick={() => setTab("terminal")}
-            >
-              Terminal
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "diff"}
-              className={tab === "diff" ? "active" : ""}
-              onClick={() => setTab("diff")}
-            >
-              Diff
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "validation"}
-              className={tab === "validation" ? "active" : ""}
-              onClick={() => setTab("validation")}
-            >
-              Validate
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "preview"}
-              className={tab === "preview" ? "active" : ""}
-              onClick={() => setTab("preview")}
-            >
-              Preview
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "workbench"}
-              className={tab === "workbench" ? "active" : ""}
-              onClick={() => setTab("workbench")}
-            >
-              Workbench
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "evaluation"}
-              className={tab === "evaluation" ? "active" : ""}
-              onClick={() => setTab("evaluation")}
-            >
-              Eval
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "replay"}
-              className={tab === "replay" ? "active" : ""}
-              onClick={() => setTab("replay")}
-            >
-              Replay
-            </button>
-            <button
-              role="tab"
-              aria-selected={tab === "settings"}
-              className={tab === "settings" ? "active" : ""}
-              onClick={() => setTab("settings")}
-            >
-              Control room
-            </button>
-            {file && (
-              <button
-                role="tab"
-                aria-selected={tab === "file"}
-                className={tab === "file" ? "active" : ""}
-                onClick={() => setTab("file")}
-              >
-                File
-              </button>
-            )}
-          </div>
-          <div
-            className={`statusline ${running ? "running" : "idle"}`}
-            aria-live="polite"
-          >
-            <span
-              className={`status-dot ${running ? "ok" : "muted"}`}
-              aria-hidden="true"
-            />
-            <span>
-              {status?.model
-                ? `${status.model.provider}/${status.model.id}`
-                : "auto model"}
-            </span>
-            <span className="status-separator" aria-hidden="true">
-              /
-            </span>
-            <strong>{running ? "running" : "idle"}</strong>
-          </div>
-        </header>
+        <AppNavigation
+          tab={tab}
+          running={running}
+          sidebarHidden={sidebarHidden}
+          hasFile={Boolean(file)}
+          onTab={setTab}
+          onToggleSidebar={() => setSidebarHidden((value) => !value)}
+        />
         {notice && (
-          <div className={`notice ${currentNoticeTone}`} role="status">
+          <div
+            className={`notice ${currentNoticeTone}`}
+            role={currentNoticeTone === "danger" ? "alert" : "status"}
+          >
             <span className="notice-icon" aria-hidden="true">
               {noticeIcon(currentNoticeTone)}
             </span>
@@ -737,7 +741,6 @@ function App() {
             hasSession={Boolean(selected)}
             sessionId={selectedId}
             cwd={activeCwd}
-            onOpenTerminal={() => setTab("terminal")}
             onOpenDiff={() => setTab("diff")}
             onOpenValidation={() => setTab("validation")}
             onSend={sendPrompt}
@@ -811,8 +814,12 @@ function App() {
             onDeleteSession={requestSessionDelete}
             onNotice={setNotice}
             onSessionsChanged={async () => {
-              await loadSessions();
+              eventsRef.current?.close();
+              eventsRef.current = null;
+              selectedRef.current = null;
               setSelected(null);
+              resetSessionView();
+              await loadSessions();
             }}
             onAuthChanged={loadModels}
             onRulesSaved={async () => {
@@ -864,7 +871,7 @@ function App() {
               .map((cmd) => (
                 <div key={`cmd-${cmd.name}`}>
                   <dt>/{cmd.name}</dt>
-                  <dd>{cmd.description || "Session command"}</dd>
+                  <dd>{cmd.description || "Chat command"}</dd>
                 </div>
               ))}
           </dl>
@@ -893,11 +900,11 @@ function App() {
               ×
             </div>
             <div>
-              <div className="panel-title">Delete session</div>
+              <div className="panel-title">Delete chat</div>
               <h2 id="delete-session-title">{sessionTitle(deleteTarget)}</h2>
               <p>
-                This removes the session transcript file. The workspace files
-                stay untouched.
+                This removes the chat transcript file. The workspace files stay
+                untouched.
               </p>
               <div className="delete-dialog-meta">
                 <span>{deleteTarget.cwd}</span>
@@ -920,7 +927,7 @@ function App() {
               >
                 {deletingSessionId === deleteTarget.id
                   ? "Deleting…"
-                  : "Delete session"}
+                  : "Delete chat"}
               </button>
             </div>
           </section>

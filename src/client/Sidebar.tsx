@@ -1,6 +1,9 @@
 import type { CSSProperties, MouseEvent, PointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { createLatestRequestGate } from "./asyncState";
+import { isMobileLayout } from "./responsiveLayout";
+import { RECENT_CHAT_LIMIT, visibleSidebarSessions } from "./sidebarSessions";
 import type { FileEntry, SessionInfo } from "./types";
 import { sessionTitle } from "./uiText";
 
@@ -21,6 +24,8 @@ type SidebarProps = {
   activeFilePath: string;
   onCwd: (value: string) => void;
   onNewSession: () => void;
+  creatingSession: boolean;
+  onHide: () => void;
   permissionProfile: string;
   onPermissionProfile: (value: string) => void;
   newWorktree: boolean;
@@ -33,7 +38,6 @@ type SidebarProps = {
   ) => void;
   onFilePath: (path: string) => void;
   onOpenFile: (entry: FileEntry) => void;
-  usageLabelFor: (sessionId: string) => string;
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -53,6 +57,10 @@ function loadSidebarWidth(): number {
   } catch {
     return DEFAULT_SIDEBAR_WIDTH;
   }
+}
+
+function workspaceName(path: string): string {
+  return path.split("/").filter(Boolean).pop() || path || "Workspace";
 }
 
 function formatRelativeTime(value: string): string {
@@ -85,6 +93,8 @@ export function Sidebar({
   activeFilePath,
   onCwd,
   onNewSession,
+  creatingSession,
+  onHide,
   permissionProfile,
   onPermissionProfile,
   newWorktree,
@@ -94,11 +104,12 @@ export function Sidebar({
   onDeleteSession,
   onFilePath,
   onOpenFile,
-  usageLabelFor,
 }: SidebarProps) {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sessionFilter, setSessionFilter] = useState("");
+  const [showAllSessions, setShowAllSessions] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
+  const [messageSearchError, setMessageSearchError] = useState("");
   const [messageResults, setMessageResults] = useState<
     Array<{
       sessionId: string;
@@ -109,39 +120,61 @@ export function Sidebar({
   >([]);
   const [pane, setPane] = useState<SidebarPane>("sessions");
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const messageSearchGate = useRef(createLatestRequestGate()).current;
 
   const canStartSession = Boolean(cwd.trim());
-  const filteredSessions = useMemo(() => {
-    const query = sessionFilter.trim().toLowerCase();
-    if (!query) return sessions;
-    return sessions.filter((session) =>
-      [session.name, session.firstMessage, session.cwd]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }, [sessions, sessionFilter]);
+  const filteredSessions = useMemo(
+    () =>
+      visibleSidebarSessions(
+        sessions,
+        sessionFilter,
+        showAllSessions,
+        selected?.id,
+      ),
+    [sessions, sessionFilter, showAllSessions, selected?.id],
+  );
+  const hasMoreSessions =
+    !sessionFilter.trim() &&
+    !showAllSessions &&
+    sessions.length > RECENT_CHAT_LIMIT;
 
   useEffect(() => {
-    localStorage.setItem(
-      SIDEBAR_LAYOUT_STORAGE_KEY,
-      JSON.stringify({ sidebarWidth }),
-    );
+    try {
+      localStorage.setItem(
+        SIDEBAR_LAYOUT_STORAGE_KEY,
+        JSON.stringify({ sidebarWidth }),
+      );
+    } catch {
+      // Layout persistence is optional in restricted browser contexts.
+    }
   }, [sidebarWidth]);
 
+  useEffect(() => () => messageSearchGate.invalidate(), [messageSearchGate]);
+
   async function searchMessages() {
-    if (!messageSearch.trim()) {
+    const query = messageSearch.trim();
+    const request = messageSearchGate.next();
+    setMessageSearchError("");
+    if (!query) {
       setMessageResults([]);
       return;
     }
-    const data = await api<{
-      results: Array<{
-        sessionId: string;
-        excerpt: string;
-        role?: string;
-        messageIndex?: number;
-      }>;
-    }>(`/api/search/sessions?q=${encodeURIComponent(messageSearch)}`);
-    setMessageResults(data.results);
+    try {
+      const data = await api<{
+        results: Array<{
+          sessionId: string;
+          excerpt: string;
+          role?: string;
+          messageIndex?: number;
+        }>;
+      }>(`/api/search/sessions?q=${encodeURIComponent(query)}`);
+      if (messageSearchGate.isCurrent(request)) setMessageResults(data.results);
+    } catch (error) {
+      if (messageSearchGate.isCurrent(request))
+        setMessageSearchError(
+          error instanceof Error ? error.message : String(error),
+        );
+    }
   }
 
   function startSidebarWidthResize(event: PointerEvent<HTMLElement>) {
@@ -172,65 +205,96 @@ export function Sidebar({
   return (
     <>
       <aside
+        id="history-sidebar"
         ref={sidebarRef}
         className="sidebar"
         style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !isMobileLayout(window.innerWidth))
+            return;
+          event.preventDefault();
+          onHide();
+        }}
       >
         <div className="sidebar-header">
           <div className="brand">π web</div>
           <button
             type="button"
-            className="layout-reset"
-            title="Restore default sidebar width"
-            onClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+            className="sidebar-hide"
+            aria-label="Hide history sidebar"
+            onClick={onHide}
           >
-            Reset layout
+            Hide
           </button>
         </div>
 
-        <section className="panel workspace-panel">
-          <label className="workspace-input">
-            <span className="panel-title">cwd</span>
-            <input
-              className="input"
-              value={cwd}
-              onChange={(event) => onCwd(event.target.value)}
-            />
-          </label>
-          <label className="workspace-input">
-            <span className="panel-title">permission</span>
-            <select
-              className="input"
-              value={permissionProfile}
-              onChange={(event) => onPermissionProfile(event.target.value)}
+        <button
+          type="button"
+          className="primary new-session-button"
+          disabled={!canStartSession || creatingSession}
+          title={
+            canStartSession
+              ? "Start a new chat in this workspace"
+              : "Set a workspace path before starting a chat"
+          }
+          onClick={onNewSession}
+        >
+          {creatingSession ? "Starting…" : "New chat"}
+        </button>
+
+        <details
+          className="panel workspace-panel"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+          }}
+        >
+          <summary>
+            <span>Workspace</span>
+            <small title={cwd}>{workspaceName(cwd)}</small>
+          </summary>
+          <div className="workspace-settings-body">
+            <label className="workspace-input">
+              <span className="panel-title">Path</span>
+              <input
+                className="input"
+                value={cwd}
+                onChange={(event) => onCwd(event.target.value)}
+              />
+            </label>
+            <label className="workspace-input">
+              <span className="panel-title">Permission</span>
+              <select
+                className="input"
+                value={permissionProfile}
+                onChange={(event) => onPermissionProfile(event.target.value)}
+              >
+                <option value="safe">safe</option>
+                <option value="ask">ask</option>
+                <option value="full">full</option>
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={newWorktree}
+                onChange={(event) => onNewWorktree(event.target.checked)}
+              />
+              Create parallel worktree
+            </label>
+            <button
+              type="button"
+              className="layout-reset"
+              title="Restore default sidebar width"
+              onClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
             >
-              <option value="safe">safe</option>
-              <option value="ask">ask</option>
-              <option value="full">full</option>
-            </select>
-          </label>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={newWorktree}
-              onChange={(event) => onNewWorktree(event.target.checked)}
-            />
-            Parallel task in new worktree
-          </label>
-          <button
-            type="button"
-            className="primary"
-            disabled={!canStartSession}
-            title={
-              canStartSession
-                ? "Create a session in this workspace"
-                : "Enter a workspace path before creating a session"
-            }
-            onClick={onNewSession}
-          >
-            New session
-          </button>
-        </section>
+              Reset sidebar width
+            </button>
+          </div>
+        </details>
 
         <div
           className="sidebar-tab-buttons"
@@ -240,14 +304,16 @@ export function Sidebar({
           <button
             type="button"
             role="tab"
+            aria-selected={pane === "sessions"}
             className={pane === "sessions" ? "active" : ""}
             onClick={() => setPane("sessions")}
           >
-            Sessions <span>{sessions.length}</span>
+            History <span>{sessions.length}</span>
           </button>
           <button
             type="button"
             role="tab"
+            aria-selected={pane === "files"}
             className={pane === "files" ? "active" : ""}
             onClick={() => setPane("files")}
           >
@@ -257,58 +323,78 @@ export function Sidebar({
 
         {pane === "sessions" ? (
           <section className="panel sidebar-tab-panel sessions-panel">
-            <div className="panel-title">
-              Sessions
-              <span>
-                {filteredSessions.length}/{sessions.length}
-              </span>
-            </div>
             <input
               className="input sidebar-search"
               value={sessionFilter}
               onChange={(event) => setSessionFilter(event.target.value)}
-              placeholder="Search sessions"
+              placeholder="Find a chat"
             />
-            <div className="message-search-row">
-              <input
-                className="input sidebar-search"
-                value={messageSearch}
-                onChange={(event) => setMessageSearch(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void searchMessages();
-                }}
-                placeholder="Search all messages"
-              />
-              <button type="button" onClick={() => void searchMessages()}>
-                Go
-              </button>
-            </div>
-            {messageResults.length > 0 && (
-              <div className="session-list search-results">
-                {messageResults.map((result) => {
-                  const session = sessions.find(
-                    (item) => item.id === result.sessionId,
-                  );
-                  return (
-                    <button
-                      type="button"
-                      className="session"
-                      key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
-                      disabled={!session}
-                      onClick={() =>
-                        session &&
-                        onSelectSearchResult(session, result.messageIndex ?? 0)
-                      }
-                    >
-                      <span className="session-heading">
-                        <span>{result.role ?? "message"}</span>
-                      </span>
-                      <small>{result.excerpt}</small>
-                    </button>
-                  );
-                })}
+            <details
+              className="message-search"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.open = false;
+                event.currentTarget
+                  .querySelector<HTMLElement>("summary")
+                  ?.focus();
+              }}
+            >
+              <summary>Search all messages</summary>
+              <div className="message-search-row">
+                <input
+                  className="input sidebar-search"
+                  value={messageSearch}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    messageSearchGate.invalidate();
+                    setMessageSearch(value);
+                    setMessageSearchError("");
+                    if (!value.trim()) setMessageResults([]);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void searchMessages();
+                  }}
+                  placeholder="Search all messages"
+                />
+                <button type="button" onClick={() => void searchMessages()}>
+                  Search
+                </button>
               </div>
-            )}
+              {messageSearchError && (
+                <div className="empty-small danger">{messageSearchError}</div>
+              )}
+              {messageResults.length > 0 && (
+                <div className="session-list search-results">
+                  {messageResults.map((result) => {
+                    const session = sessions.find(
+                      (item) => item.id === result.sessionId,
+                    );
+                    return (
+                      <button
+                        type="button"
+                        className="session"
+                        key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
+                        disabled={!session || creatingSession}
+                        onClick={() =>
+                          session &&
+                          onSelectSearchResult(
+                            session,
+                            result.messageIndex ?? 0,
+                          )
+                        }
+                      >
+                        <span className="session-heading">
+                          <span>{result.role ?? "message"}</span>
+                        </span>
+                        <small>{result.excerpt}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </details>
             <div className="session-list">
               {filteredSessions.map((session) => {
                 const title = sessionTitle(session);
@@ -322,7 +408,7 @@ export function Sidebar({
                     <button
                       type="button"
                       className={`session ${active ? "active" : ""}`}
-                      disabled={deleting}
+                      disabled={deleting || creatingSession}
                       onClick={() => onSelectSession(session)}
                     >
                       <span className="session-heading">
@@ -332,18 +418,19 @@ export function Sidebar({
                         )}
                         {active && <em>active</em>}
                       </span>
-                      <small>{session.cwd}</small>
+                      <small title={session.cwd}>
+                        {workspaceName(session.cwd)}
+                      </small>
                       <span className="session-meta">
                         {formatRelativeTime(session.modified)} ·{" "}
-                        {session.messageCount} msgs · usage{" "}
-                        {usageLabelFor(session.id)}
+                        {session.messageCount} messages
                       </span>
                     </button>
                     <button
                       type="button"
                       className="session-delete"
                       aria-label={`Delete ${title}`}
-                      title="Delete session"
+                      title="Delete chat"
                       disabled={deleting}
                       onClick={(event) => onDeleteSession(session, event)}
                     >
@@ -352,11 +439,31 @@ export function Sidebar({
                   </div>
                 );
               })}
+              {hasMoreSessions && (
+                <button
+                  type="button"
+                  className="show-all-sessions"
+                  onClick={() => setShowAllSessions(true)}
+                >
+                  Show all {sessions.length} chats
+                </button>
+              )}
+              {showAllSessions &&
+                !sessionFilter.trim() &&
+                sessions.length > RECENT_CHAT_LIMIT && (
+                  <button
+                    type="button"
+                    className="show-all-sessions"
+                    onClick={() => setShowAllSessions(false)}
+                  >
+                    Show recent chats
+                  </button>
+                )}
               {filteredSessions.length === 0 && (
                 <div className="empty-small">
                   {sessionFilter.trim()
-                    ? "No matching sessions."
-                    : "No sessions yet."}
+                    ? "No matching chats."
+                    : "No chats yet."}
                 </div>
               )}
             </div>
@@ -409,8 +516,14 @@ export function Sidebar({
       <button
         type="button"
         className="sidebar-width-resizer"
-        aria-label="Resize sidebar"
+        aria-label="Resize history sidebar"
         onPointerDown={startSidebarWidthResize}
+      />
+      <button
+        type="button"
+        className="sidebar-backdrop"
+        aria-label="Close history sidebar"
+        onClick={onHide}
       />
     </>
   );

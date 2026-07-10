@@ -9,7 +9,8 @@ export function noticeTone(message: string): NoticeTone {
     text.includes("error") ||
     text.includes("failed") ||
     text.includes("bad gateway") ||
-    text.includes("unavailable")
+    text.includes("unavailable") ||
+    text.includes("disconnected")
   )
     return "danger";
   if (
@@ -52,8 +53,21 @@ export function toolRiskLabel(toolName: string): string | undefined {
 export function sessionTitle(session: SessionInfo): string {
   if (session.name) return session.name;
   if (!session.firstMessage || session.firstMessage === "No session selected")
-    return session.messageCount === 0 ? "New session" : "Untitled";
+    return session.messageCount === 0 ? "New chat" : "Untitled";
   return session.firstMessage;
+}
+
+export function toolResultDisclosure({
+  isError,
+}: {
+  isError?: boolean;
+  text: string;
+}): { open: boolean; label: "Tool result" | "Tool error" } {
+  const failed = Boolean(isError);
+  return {
+    open: failed,
+    label: failed ? "Tool error" : "Tool result",
+  };
 }
 
 export function scopeLabel(scope?: string): string {

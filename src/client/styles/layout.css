@@ -366,17 +366,6 @@ pre {
   flex: 1;
   min-height: 0;
 }
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-.controls select {
-  max-width: 280px;
-}
 .tools-menu {
   position: relative;
 }
