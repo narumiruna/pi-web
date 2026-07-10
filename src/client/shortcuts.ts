@@ -22,14 +22,14 @@ export const shortcutMap: Record<string, ShortcutAction> = {
 };
 
 export const shortcutHelp: Array<[string, string]> = [
-  ["Ctrl/⌘ N", "New session"],
+  ["Ctrl/⌘ N", "New chat"],
   ["Ctrl/⌘ K", "Focus prompt"],
   ["Ctrl/⌘ 1", "Open chat tab"],
   ["Ctrl/⌘ 2", "Open terminal tab"],
-  ["Ctrl/⌘ D", "Open diff review"],
-  ["Ctrl/⌘ Shift T", "Open validation"],
+  ["Ctrl/⌘ D", "Open changes"],
+  ["Ctrl/⌘ Shift T", "Run checks"],
   ["Ctrl/⌘ .", "Abort running agent"],
-  ["Ctrl/⌘ B", "Toggle sidebar"],
+  ["Ctrl/⌘ B", "Toggle history"],
   ["Ctrl/⌘ Enter", "Send prompt (in composer)"],
   ["Ctrl/⌘ Shift L", "Send recent terminal output to chat (in terminal)"],
   ["?", "Toggle this help"],

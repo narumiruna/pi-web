@@ -1,9 +1,12 @@
 @import "./styles/tokens.css";
 @import "./styles/layout.css";
 @import "./styles/components.css";
-@import "./styles/polish.css";
+@import "./styles/polish-shell.css";
+@import "./styles/polish-chat.css";
+@import "./styles/polish-control-room.css";
 @import "./styles/terminal.css";
 @import "./styles/file.css";
 @import "./styles/sidebar-files.css";
 @import "./styles/chat.css";
 @import "./styles/control-room.css";
+@import "./styles/interface.css";

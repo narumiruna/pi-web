@@ -10,7 +10,13 @@ import {
 } from "./composerIntents";
 import { linkifyText } from "./textLinks";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
-import { nextStepFor, noticeTone, scopeLabel, toolRiskLabel } from "./uiText";
+import {
+  nextStepFor,
+  noticeTone,
+  scopeLabel,
+  toolResultDisclosure,
+  toolRiskLabel,
+} from "./uiText";
 import {
   parseWorkspaceImageMarkdown,
   workspaceImageUrl,
@@ -63,6 +69,66 @@ function textFromContent(content: any): string {
     .join("\n");
 }
 
+export type DisplayMessageGroup = {
+  kind: "message" | "activity";
+  indexes: number[];
+  hasError: boolean;
+};
+
+function isTechnicalMessage(message: any): boolean {
+  if (message?.role === "toolResult") return true;
+  if (message?.role !== "assistant" || !Array.isArray(message.content))
+    return false;
+  return (
+    message.content.length > 0 &&
+    message.content.every(
+      (part: any) => part?.type === "thinking" || part?.type === "toolCall",
+    )
+  );
+}
+
+export function groupMessagesForDisplay(
+  messages: any[],
+): DisplayMessageGroup[] {
+  const groups: DisplayMessageGroup[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    if (!isTechnicalMessage(messages[index])) {
+      groups.push({ kind: "message", indexes: [index], hasError: false });
+      continue;
+    }
+
+    let routineIndexes: number[] = [];
+    const flushRoutineActivity = () => {
+      if (routineIndexes.length === 0) return;
+      groups.push({
+        kind: "activity",
+        indexes: routineIndexes,
+        hasError: false,
+      });
+      routineIndexes = [];
+    };
+    while (index < messages.length && isTechnicalMessage(messages[index])) {
+      const technicalMessage = messages[index];
+      const failed =
+        technicalMessage.role === "toolResult" &&
+        toolResultDisclosure({
+          isError: technicalMessage.isError,
+          text: textFromContent(technicalMessage.content),
+        }).open;
+      if (failed) {
+        flushRoutineActivity();
+        groups.push({ kind: "activity", indexes: [index], hasError: true });
+      } else {
+        routineIndexes.push(index);
+      }
+      index += 1;
+    }
+    flushRoutineActivity();
+    index -= 1;
+  }
+  return groups;
+}
+
 function imagesFromContent(
   content: any,
 ): Array<{ data: string; mimeType: string }> {
@@ -86,7 +152,6 @@ export function ChatPane(props: {
   hasSession: boolean;
   sessionId?: string;
   cwd: string;
-  onOpenTerminal: () => void;
   onOpenDiff: () => void;
   onOpenValidation: () => void;
   onSend: (
@@ -138,6 +203,12 @@ export function ChatPane(props: {
     props.running,
     props.lastValidation,
   );
+  const currentActivity =
+    timeline.find((item) => item.state === "running") ??
+    [...timeline]
+      .reverse()
+      .find((item) => item.state === "done" || item.state === "failed") ??
+    timeline[0];
   const sessionId = props.sessionId;
   const [bookmarked, setBookmarked] = useState<Set<number>>(new Set());
   useEffect(() => {
@@ -184,185 +255,178 @@ export function ChatPane(props: {
 
   return (
     <div className="chat-tab">
-      <div className="controls">
-        <div className="chat-controls-inner">
-          <div className="control-group model-controls">
-            <select
-              aria-label="Model"
-              disabled={!props.hasSession || props.models.length === 0}
-              title={
-                props.hasSession
-                  ? "Model for the selected session"
-                  : "Select or create a session before changing models"
-              }
-              value={
-                props.status?.model
-                  ? `${props.status.model.provider}/${props.status.model.id}`
-                  : ""
-              }
-              onChange={(event) => void props.onModel(event.target.value)}
-            >
-              <option value="">auto model</option>
-              {props.models.map((model) => (
-                <option
-                  key={`${model.provider}/${model.id}`}
-                  value={`${model.provider}/${model.id}`}
-                >
-                  {model.name || model.id} · {model.provider}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Reasoning"
-              disabled={!props.hasSession}
-              title={
-                props.hasSession
-                  ? "Reasoning level for the selected session"
-                  : "Select or create a session before changing reasoning"
-              }
-              value={props.status?.thinkingLevel || "off"}
-              onChange={(event) => void props.onThinking(event.target.value)}
-            >
-              {THINKING.map((level) => (
-                <option key={level}>{level}</option>
-              ))}
-            </select>
+      {props.hasSession && (
+        <div className="session-bar">
+          <div className="session-context" title={props.cwd}>
+            <span>
+              {props.cwd.split("/").filter(Boolean).pop() || "Workspace"}
+            </span>
           </div>
-          <div className="control-group action-controls">
-            <button
-              type="button"
-              disabled={!props.hasSession}
-              title={
-                props.hasSession
-                  ? "Open the current workspace diff"
-                  : "Select or create a session before reviewing a diff"
-              }
-              onClick={props.onOpenDiff}
-            >
-              Review diff
-            </button>
-            <button
-              type="button"
-              disabled={!props.hasSession}
-              title={
-                props.hasSession
-                  ? "Open validation checks for this workspace"
-                  : "Select or create a session before validating"
-              }
-              onClick={props.onOpenValidation}
-            >
-              Validate
-            </button>
-            <button
-              disabled={!props.hasSession}
-              title={
-                props.hasSession
-                  ? "Compact the selected session"
-                  : "Select or create a session before compacting"
-              }
-              onClick={() => void props.onCompact()}
-            >
-              Compact
-            </button>
-            {props.running && (
-              <button className="danger" onClick={() => void props.onAbort()}>
-                Abort
-              </button>
-            )}
-            <details
-              className={`tools-menu ${props.hasSession ? "" : "disabled"}`}
-            >
-              <summary
-                aria-disabled={!props.hasSession}
-                title={
-                  props.hasSession
-                    ? "Toggle tools for the selected session"
-                    : "Select or create a session before changing tools"
-                }
-                onClick={(event) => {
-                  if (!props.hasSession) event.preventDefault();
-                }}
-              >
-                Tools ({activeToolNames.length}/{props.tools.length})
-              </summary>
-              <div className="tools-list">
-                {props.tools.map((tool) => {
-                  const active = activeToolNames.includes(tool.name);
-                  const risk = toolRiskLabel(tool.name);
-                  return (
-                    <label key={tool.name} title={tool.description}>
-                      <input
-                        type="checkbox"
-                        disabled={!props.hasSession}
-                        checked={active}
-                        onChange={(event) => {
-                          const next = new Set(activeToolNames);
-                          if (event.target.checked) next.add(tool.name);
-                          else next.delete(tool.name);
-                          void props.onTools([...next]);
-                        }}
-                      />
-                      <span>
-                        <strong>{tool.name}</strong>
-                        <span className="tool-description">
-                          {tool.description || "No description"}
-                        </span>
-                        <span className="tool-labels">
-                          <span
-                            className={`state-badge ${active ? "ok" : "muted"}`}
-                          >
-                            {active ? "enabled" : "disabled"}
-                          </span>
-                          <span className="scope-badge">
-                            {scopeLabel(tool.sourceInfo?.scope)} scope
-                          </span>
-                          {risk && <span className="risk-badge">{risk}</span>}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-                {props.tools.length === 0 && (
-                  <small>Select a session to load session-scoped tools.</small>
+          <details
+            className="session-options"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.currentTarget.open = false;
+              event.currentTarget
+                .querySelector<HTMLElement>("summary")
+                ?.focus();
+            }}
+          >
+            <summary>Session options</summary>
+            <div className="session-options-menu">
+              <label>
+                <span>Model</span>
+                <select
+                  aria-label="Model"
+                  disabled={props.models.length === 0}
+                  value={
+                    props.status?.model
+                      ? `${props.status.model.provider}/${props.status.model.id}`
+                      : ""
+                  }
+                  onChange={(event) => void props.onModel(event.target.value)}
+                >
+                  <option value="">Automatic</option>
+                  {props.models.map((model) => (
+                    <option
+                      key={`${model.provider}/${model.id}`}
+                      value={`${model.provider}/${model.id}`}
+                    >
+                      {model.name || model.id} · {model.provider}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Reasoning</span>
+                <select
+                  aria-label="Reasoning"
+                  value={props.status?.thinkingLevel || "off"}
+                  onChange={(event) =>
+                    void props.onThinking(event.target.value)
+                  }
+                >
+                  {THINKING.map((level) => (
+                    <option key={level}>{level}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="session-option-actions">
+                <button type="button" onClick={props.onOpenDiff}>
+                  Review changes
+                </button>
+                <button type="button" onClick={props.onOpenValidation}>
+                  Validate
+                </button>
+                <button type="button" onClick={() => void props.onCompact()}>
+                  Compact conversation
+                </button>
+                {props.running && (
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => void props.onAbort()}
+                  >
+                    Stop agent
+                  </button>
                 )}
               </div>
-            </details>
-          </div>
-          <div className="control-group run-status" aria-live="polite">
-            <span className={`status-dot ${props.running ? "ok" : "muted"}`} />
-            {props.running ? "Running" : "Idle"}
-          </div>
-        </div>
-      </div>
-      <section className="agent-timeline" aria-label="Plan Act Verify timeline">
-        {timeline.map((item) =>
-          item.phase === "Verify" ? (
-            <button
-              type="button"
-              className={`timeline-item ${item.state}`}
-              key={item.phase}
-              title="Open validation panel"
-              onClick={props.onOpenValidation}
-            >
-              <strong>{item.phase}</strong>
-              <span>{item.title}</span>
-              <small>{item.detail}</small>
-            </button>
-          ) : (
-            <div className={`timeline-item ${item.state}`} key={item.phase}>
-              <strong>{item.phase}</strong>
-              <span>{item.title}</span>
-              <small>{item.detail}</small>
+              <details className="tools-menu">
+                <summary>
+                  Tools ({activeToolNames.length}/{props.tools.length})
+                </summary>
+                <div className="tools-list">
+                  {props.tools.map((tool) => {
+                    const active = activeToolNames.includes(tool.name);
+                    const risk = toolRiskLabel(tool.name);
+                    return (
+                      <label key={tool.name} title={tool.description}>
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          onChange={(event) => {
+                            const next = new Set(activeToolNames);
+                            if (event.target.checked) next.add(tool.name);
+                            else next.delete(tool.name);
+                            void props.onTools([...next]);
+                          }}
+                        />
+                        <span>
+                          <strong>{tool.name}</strong>
+                          <span className="tool-description">
+                            {tool.description || "No description"}
+                          </span>
+                          <span className="tool-labels">
+                            <span
+                              className={`state-badge ${active ? "ok" : "muted"}`}
+                            >
+                              {active ? "enabled" : "disabled"}
+                            </span>
+                            <span className="scope-badge">
+                              {scopeLabel(tool.sourceInfo?.scope)} scope
+                            </span>
+                            {risk && <span className="risk-badge">{risk}</span>}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                  {props.tools.length === 0 && (
+                    <small>No tools are available for this chat.</small>
+                  )}
+                </div>
+              </details>
             </div>
-          ),
-        )}
-      </section>
+          </details>
+        </div>
+      )}
+      {!empty && (
+        <details
+          className="activity-panel"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+          }}
+        >
+          <summary>
+            <strong>Activity</strong>
+            <span>
+              {currentActivity.phase}: {currentActivity.title}
+            </span>
+          </summary>
+          <section
+            className="agent-timeline"
+            aria-label="Plan Act Verify timeline"
+          >
+            {timeline.map((item) =>
+              item.phase === "Verify" ? (
+                <button
+                  type="button"
+                  className={`timeline-item ${item.state}`}
+                  key={item.phase}
+                  title="Open validation panel"
+                  onClick={props.onOpenValidation}
+                >
+                  <strong>{item.phase}</strong>
+                  <span>{item.title}</span>
+                  <small>{item.detail}</small>
+                </button>
+              ) : (
+                <div className={`timeline-item ${item.state}`} key={item.phase}>
+                  <strong>{item.phase}</strong>
+                  <span>{item.title}</span>
+                  <small>{item.detail}</small>
+                </div>
+              ),
+            )}
+          </section>
+        </details>
+      )}
       {empty ? (
         <EmptyState
           hasSession={props.hasSession}
-          cwd={props.cwd}
           running={props.running}
-          onOpenTerminal={props.onOpenTerminal}
           onSend={props.onSend}
         />
       ) : (
@@ -395,15 +459,11 @@ export function ChatPane(props: {
 
 function EmptyState({
   hasSession,
-  cwd,
   running,
-  onOpenTerminal,
   onSend,
 }: {
   hasSession: boolean;
-  cwd: string;
   running: boolean;
-  onOpenTerminal: () => void;
   onSend: (text: string) => Promise<void>;
 }) {
   const actions = [
@@ -419,23 +479,18 @@ function EmptyState({
       "Explain project",
       "Explain what this project does, where the main code lives, and how to start it.",
     ],
-    [
-      "Create new task",
-      "Help me turn my next coding task into a short implementation checklist for this repository.",
-    ],
   ] as const;
 
   return (
     <div className="messages empty-state">
       <section className="empty-card">
-        <div className="eyebrow">{cwd || "workspace"}</div>
-        <h2>{hasSession ? "New session ready" : "No active session"}</h2>
+        <h2>{hasSession ? "Ready when you are" : "Start with a message"}</h2>
         <p>
           {hasSession
-            ? "Ask pi to inspect the workspace, run a check, or explain the project."
-            : "Start by selecting a session or asking the agent to inspect the workspace."}
+            ? "Describe the outcome you want, or choose a starting point."
+            : "Describe what you want to change. A chat will be created automatically."}
         </p>
-        <div className="quick-actions">
+        <div className="quick-actions" aria-label="Starting points">
           {actions.map(([label, prompt]) => (
             <button
               type="button"
@@ -446,9 +501,6 @@ function EmptyState({
               {label}
             </button>
           ))}
-          <button type="button" onClick={onOpenTerminal}>
-            Open terminal
-          </button>
         </div>
       </section>
     </div>
@@ -472,18 +524,81 @@ const MessageList = memo(function MessageList({
     excerpt: string,
   ) => Promise<void>;
 }) {
-  return messages.map((message, index) => (
-    <Message
-      key={messageKey(message, index)}
-      message={message}
-      cwd={cwd}
-      sessionId={sessionId}
-      messageIndex={index}
-      bookmarked={bookmarked.has(index)}
-      onToggleBookmark={onToggleBookmark}
-    />
-  ));
+  return groupMessagesForDisplay(messages).map((group) =>
+    group.kind === "activity" ? (
+      <ToolActivityGroup
+        key={`activity:${group.indexes.join(":")}`}
+        messages={group.indexes.map((index) => ({
+          message: messages[index],
+          index,
+        }))}
+        hasError={group.hasError}
+        cwd={cwd}
+        sessionId={sessionId}
+        bookmarked={bookmarked}
+        onToggleBookmark={onToggleBookmark}
+      />
+    ) : (
+      <Message
+        key={messageKey(messages[group.indexes[0]], group.indexes[0])}
+        message={messages[group.indexes[0]]}
+        cwd={cwd}
+        sessionId={sessionId}
+        messageIndex={group.indexes[0]}
+        bookmarked={bookmarked.has(group.indexes[0])}
+        onToggleBookmark={onToggleBookmark}
+      />
+    ),
+  );
 });
+
+function ToolActivityGroup({
+  messages,
+  hasError,
+  cwd,
+  sessionId,
+  bookmarked,
+  onToggleBookmark,
+}: {
+  messages: Array<{ message: any; index: number }>;
+  hasError: boolean;
+  cwd: string;
+  sessionId?: string;
+  bookmarked: Set<number>;
+  onToggleBookmark: (
+    messageIndex: number,
+    role: string,
+    excerpt: string,
+  ) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(hasError);
+  return (
+    <details
+      className={`tool-activity-group ${hasError ? "danger" : ""}`}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>
+        Agent activity · {messages.length} step
+        {messages.length === 1 ? "" : "s"}
+        {hasError ? " · Needs attention" : ""}
+      </summary>
+      <div className="tool-activity-items">
+        {messages.map(({ message, index }) => (
+          <Message
+            key={messageKey(message, index)}
+            message={message}
+            cwd={cwd}
+            sessionId={sessionId}
+            messageIndex={index}
+            bookmarked={bookmarked.has(index)}
+            onToggleBookmark={onToggleBookmark}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
 
 function draft(text: string) {
   window.dispatchEvent(new CustomEvent(COMPOSER_DRAFT_EVENT, { detail: text }));
@@ -517,9 +632,11 @@ const Message = memo(function Message({
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
   const images = imagesFromContent(message.content);
-  const [toolResultOpen, setToolResultOpen] = useState(
-    Boolean(message.isError),
-  );
+  const toolDisclosure = toolResultDisclosure({
+    isError: message.isError,
+    text,
+  });
+  const [toolResultOpen, setToolResultOpen] = useState(toolDisclosure.open);
   if (role === "toolResult") {
     return (
       <div
@@ -532,8 +649,8 @@ const Message = memo(function Message({
           onToggle={(event) => setToolResultOpen(event.currentTarget.open)}
         >
           <summary>
-            Tool result{message.toolName ? ` · ${message.toolName}` : ""}
-            {message.isError ? " · Error" : ""}
+            {toolDisclosure.label}
+            {message.toolName ? ` · ${message.toolName}` : ""}
           </summary>
           {images.map((image, index) => (
             <img
@@ -655,6 +772,9 @@ function MessageContent({ content, cwd }: { content: any; cwd: string }) {
   if (typeof content === "string")
     return <WorkspaceText text={content} cwd={cwd} />;
   if (!Array.isArray(content)) return null;
+  const toolCalls = content
+    .map((part, index) => ({ part, index }))
+    .filter(({ part }) => part?.type === "toolCall");
   return (
     <>
       {content.map((part, index) => {
@@ -667,18 +787,28 @@ function MessageContent({ content, cwd }: { content: any; cwd: string }) {
               <WorkspaceText text={part.thinking} cwd={cwd} />
             </details>
           );
-        if (part?.type === "toolCall") {
-          const name = part.name ?? part.toolName ?? "tool";
-          const args = part.arguments ?? part.input ?? {};
-          return (
-            <div key={index} className="tool-card call">
-              <div className="tool-card-title">Action · {name}</div>
-              <pre>{JSON.stringify(args, null, 2)}</pre>
-            </div>
-          );
-        }
         return null;
       })}
+      {toolCalls.length > 0 && (
+        <details className="agent-actions">
+          <summary>
+            Agent actions · {toolCalls.length} call
+            {toolCalls.length === 1 ? "" : "s"}
+          </summary>
+          <div className="agent-action-items">
+            {toolCalls.map(({ part, index }) => {
+              const name = part.name ?? part.toolName ?? "tool";
+              const args = part.arguments ?? part.input ?? {};
+              return (
+                <div key={index} className="tool-card call">
+                  <div className="tool-card-title">{name}</div>
+                  <pre>{JSON.stringify(args, null, 2)}</pre>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
     </>
   );
 }
