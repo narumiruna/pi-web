@@ -113,6 +113,11 @@ details:not([open]) > :not(summary) {
   margin-top: 0;
 }
 
+.message-search .empty-small.danger {
+  color: var(--danger);
+  white-space: normal;
+}
+
 .search-results {
   max-height: 180px;
   margin-bottom: 8px;

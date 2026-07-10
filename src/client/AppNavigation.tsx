@@ -96,6 +96,8 @@ export function AppNavigation({
           <button
             type="button"
             className="sidebar-toggle"
+            aria-controls="history-sidebar"
+            aria-expanded={!sidebarHidden}
             onClick={onToggleSidebar}
           >
             History
@@ -108,7 +110,7 @@ export function AppNavigation({
               key={item.tab}
               aria-current={tab === item.tab ? "page" : undefined}
               className={tab === item.tab ? "active" : ""}
-              onClick={() => onTab(item.tab)}
+              onClick={() => selectTab(item.tab)}
             >
               {item.label}
             </button>

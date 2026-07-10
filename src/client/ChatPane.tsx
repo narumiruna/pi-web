@@ -2,12 +2,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildAgentTimeline, type ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
+import { createSingleFlight } from "./asyncState";
 import { getPastedImageFiles } from "./clipboardImages";
 import {
   appendDraftText,
   COMPOSER_DRAFT_EVENT,
   type ComposerIntent,
 } from "./composerIntents";
+import { clearSubmittedImages, clearSubmittedText } from "./composerState";
 import { linkifyText } from "./textLinks";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
 import {
@@ -31,9 +33,9 @@ function contentHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function safeJson(value: unknown) {
+function safeJson(value: unknown, space?: number) {
   try {
-    return JSON.stringify(value) ?? "";
+    return JSON.stringify(value, null, space) ?? "";
   } catch {
     return "";
   }
@@ -55,6 +57,18 @@ export function messageKey(message: any, index = 0): string {
   return `${message.role ?? "event"}:${contentHash(fallback)}:${index}`;
 }
 
+export function scopedMessageKey(
+  sessionId: string | undefined,
+  message: any,
+  index = 0,
+): string {
+  return `${sessionId ?? "no-chat"}:${messageKey(message, index)}`;
+}
+
+export function revealDisclosure(open: boolean, urgent: boolean): boolean {
+  return open || urgent;
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -63,7 +77,7 @@ function textFromContent(content: any): string {
       if (part?.type === "text") return part.text ?? "";
       if (part?.type === "thinking") return part.thinking ?? "";
       if (part?.type === "toolCall")
-        return `${part.name ?? part.toolName ?? "tool"} ${JSON.stringify(part.arguments ?? part.input ?? {})}`;
+        return `${part.name ?? part.toolName ?? "tool"} ${safeJson(part.arguments ?? part.input ?? {})}`;
       return "";
     })
     .join("\n");
@@ -212,12 +226,14 @@ export function ChatPane(props: {
   const sessionId = props.sessionId;
   const [bookmarked, setBookmarked] = useState<Set<number>>(new Set());
   useEffect(() => {
+    let cancelled = false;
     if (!sessionId) {
       setBookmarked(new Set());
       return;
     }
     void api<{ bookmarks: any[] }>("/api/bookmarks")
-      .then((data) =>
+      .then((data) => {
+        if (cancelled) return;
         setBookmarked(
           new Set(
             data.bookmarks
@@ -225,9 +241,12 @@ export function ChatPane(props: {
               .map((item) => Number(item.messageIndex))
               .filter(Number.isInteger),
           ),
-        ),
-      )
+        );
+      })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
   const toggleBookmark = useCallback(
     async (messageIndex: number, role: string, excerpt: string) => {
@@ -527,7 +546,7 @@ const MessageList = memo(function MessageList({
   return groupMessagesForDisplay(messages).map((group) =>
     group.kind === "activity" ? (
       <ToolActivityGroup
-        key={`activity:${group.indexes.join(":")}`}
+        key={`${sessionId ?? "no-chat"}:activity:${group.indexes[0]}`}
         messages={group.indexes.map((index) => ({
           message: messages[index],
           index,
@@ -540,7 +559,11 @@ const MessageList = memo(function MessageList({
       />
     ) : (
       <Message
-        key={messageKey(messages[group.indexes[0]], group.indexes[0])}
+        key={scopedMessageKey(
+          sessionId,
+          messages[group.indexes[0]],
+          group.indexes[0],
+        )}
         message={messages[group.indexes[0]]}
         cwd={cwd}
         sessionId={sessionId}
@@ -572,6 +595,9 @@ function ToolActivityGroup({
   ) => Promise<void>;
 }) {
   const [open, setOpen] = useState(hasError);
+  useEffect(() => {
+    if (hasError) setOpen((value) => revealDisclosure(value, true));
+  }, [hasError]);
   return (
     <details
       className={`tool-activity-group ${hasError ? "danger" : ""}`}
@@ -586,7 +612,7 @@ function ToolActivityGroup({
       <div className="tool-activity-items">
         {messages.map(({ message, index }) => (
           <Message
-            key={messageKey(message, index)}
+            key={scopedMessageKey(sessionId, message, index)}
             message={message}
             cwd={cwd}
             sessionId={sessionId}
@@ -637,6 +663,10 @@ const Message = memo(function Message({
     text,
   });
   const [toolResultOpen, setToolResultOpen] = useState(toolDisclosure.open);
+  useEffect(() => {
+    if (toolDisclosure.open)
+      setToolResultOpen((value) => revealDisclosure(value, true));
+  }, [toolDisclosure.open]);
   if (role === "toolResult") {
     return (
       <div
@@ -802,7 +832,7 @@ function MessageContent({ content, cwd }: { content: any; cwd: string }) {
               return (
                 <div key={index} className="tool-card call">
                   <div className="tool-card-title">{name}</div>
-                  <pre>{JSON.stringify(args, null, 2)}</pre>
+                  <pre>{safeJson(args, 2) || "[unserializable arguments]"}</pre>
                 </div>
               );
             })}
@@ -834,6 +864,7 @@ function Composer({
   const [images, setImages] = useState<AttachedImage[]>([]);
   const textInput = useRef<HTMLTextAreaElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const submitFlight = useRef(createSingleFlight<void>()).current;
   const slashCommands = commands.filter(
     (cmd) => text.startsWith("/") && cmd.name?.includes(text.slice(1)),
   );
@@ -873,11 +904,20 @@ function Composer({
   }
 
   async function submit(mode?: "steer" | "followUp") {
-    if (!text.trim() && images.length === 0) return;
-    await onSend(text, images, mode);
-    setText("");
-    setImages([]);
-    textInput.current?.focus();
+    await submitFlight.run(async () => {
+      const submittedText = text;
+      const submittedImages = images;
+      if (!submittedText.trim() && submittedImages.length === 0) return;
+      try {
+        await onSend(submittedText, submittedImages, mode);
+        setText((value) => clearSubmittedText(value, submittedText));
+        setImages((value) => clearSubmittedImages(value, submittedImages));
+      } catch {
+        // Keep the draft; the parent surfaces the request error.
+      } finally {
+        textInput.current?.focus();
+      }
+    });
   }
 
   return (

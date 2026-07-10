@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { groupMessagesForDisplay, messageKey } from "./ChatPane";
+import {
+  groupMessagesForDisplay,
+  messageKey,
+  revealDisclosure,
+  scopedMessageKey,
+} from "./ChatPane";
 
 describe("messageKey", () => {
   it("uses stable message identifiers when present", () => {
@@ -23,6 +28,34 @@ describe("messageKey", () => {
     expect(messageKey({ role: "assistant", content }, 1)).toMatch(
       /^assistant:[a-z0-9]+:1$/,
     );
+  });
+
+  it("does not crash on non-serializable tool arguments", () => {
+    const args: Record<string, unknown> = { count: 1n };
+    args.self = args;
+    const message = {
+      role: "assistant",
+      content: [{ type: "toolCall", name: "custom", arguments: args }],
+    };
+
+    expect(() => messageKey(message, 0)).not.toThrow();
+    expect(messageKey(message, 0)).toMatch(/^assistant:[a-z0-9]+:0$/);
+  });
+
+  it("scopes message state to the selected chat", () => {
+    const message = { role: "toolResult", id: "shared", content: "done" };
+
+    expect(scopedMessageKey("chat-a", message, 0)).not.toBe(
+      scopedMessageKey("chat-b", message, 0),
+    );
+  });
+});
+
+describe("revealDisclosure", () => {
+  it("opens newly urgent output without closing user-opened output", () => {
+    expect(revealDisclosure(false, true)).toBe(true);
+    expect(revealDisclosure(true, false)).toBe(true);
+    expect(revealDisclosure(false, false)).toBe(false);
   });
 });
 

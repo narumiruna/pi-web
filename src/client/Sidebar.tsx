@@ -1,6 +1,8 @@
 import type { CSSProperties, MouseEvent, PointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
+import { createLatestRequestGate } from "./asyncState";
+import { isMobileLayout } from "./responsiveLayout";
 import { RECENT_CHAT_LIMIT, visibleSidebarSessions } from "./sidebarSessions";
 import type { FileEntry, SessionInfo } from "./types";
 import { sessionTitle } from "./uiText";
@@ -22,6 +24,7 @@ type SidebarProps = {
   activeFilePath: string;
   onCwd: (value: string) => void;
   onNewSession: () => void;
+  creatingSession: boolean;
   onHide: () => void;
   permissionProfile: string;
   onPermissionProfile: (value: string) => void;
@@ -90,6 +93,7 @@ export function Sidebar({
   activeFilePath,
   onCwd,
   onNewSession,
+  creatingSession,
   onHide,
   permissionProfile,
   onPermissionProfile,
@@ -105,6 +109,7 @@ export function Sidebar({
   const [sessionFilter, setSessionFilter] = useState("");
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
+  const [messageSearchError, setMessageSearchError] = useState("");
   const [messageResults, setMessageResults] = useState<
     Array<{
       sessionId: string;
@@ -115,6 +120,7 @@ export function Sidebar({
   >([]);
   const [pane, setPane] = useState<SidebarPane>("sessions");
   const sidebarRef = useRef<HTMLElement | null>(null);
+  const messageSearchGate = useRef(createLatestRequestGate()).current;
 
   const canStartSession = Boolean(cwd.trim());
   const filteredSessions = useMemo(
@@ -133,26 +139,42 @@ export function Sidebar({
     sessions.length > RECENT_CHAT_LIMIT;
 
   useEffect(() => {
-    localStorage.setItem(
-      SIDEBAR_LAYOUT_STORAGE_KEY,
-      JSON.stringify({ sidebarWidth }),
-    );
+    try {
+      localStorage.setItem(
+        SIDEBAR_LAYOUT_STORAGE_KEY,
+        JSON.stringify({ sidebarWidth }),
+      );
+    } catch {
+      // Layout persistence is optional in restricted browser contexts.
+    }
   }, [sidebarWidth]);
 
+  useEffect(() => () => messageSearchGate.invalidate(), [messageSearchGate]);
+
   async function searchMessages() {
-    if (!messageSearch.trim()) {
+    const query = messageSearch.trim();
+    const request = messageSearchGate.next();
+    setMessageSearchError("");
+    if (!query) {
       setMessageResults([]);
       return;
     }
-    const data = await api<{
-      results: Array<{
-        sessionId: string;
-        excerpt: string;
-        role?: string;
-        messageIndex?: number;
-      }>;
-    }>(`/api/search/sessions?q=${encodeURIComponent(messageSearch)}`);
-    setMessageResults(data.results);
+    try {
+      const data = await api<{
+        results: Array<{
+          sessionId: string;
+          excerpt: string;
+          role?: string;
+          messageIndex?: number;
+        }>;
+      }>(`/api/search/sessions?q=${encodeURIComponent(query)}`);
+      if (messageSearchGate.isCurrent(request)) setMessageResults(data.results);
+    } catch (error) {
+      if (messageSearchGate.isCurrent(request))
+        setMessageSearchError(
+          error instanceof Error ? error.message : String(error),
+        );
+    }
   }
 
   function startSidebarWidthResize(event: PointerEvent<HTMLElement>) {
@@ -183,9 +205,16 @@ export function Sidebar({
   return (
     <>
       <aside
+        id="history-sidebar"
         ref={sidebarRef}
         className="sidebar"
         style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape" || !isMobileLayout(window.innerWidth))
+            return;
+          event.preventDefault();
+          onHide();
+        }}
       >
         <div className="sidebar-header">
           <div className="brand">π web</div>
@@ -202,7 +231,7 @@ export function Sidebar({
         <button
           type="button"
           className="primary new-session-button"
-          disabled={!canStartSession}
+          disabled={!canStartSession || creatingSession}
           title={
             canStartSession
               ? "Start a new chat in this workspace"
@@ -210,13 +239,15 @@ export function Sidebar({
           }
           onClick={onNewSession}
         >
-          New chat
+          {creatingSession ? "Starting…" : "New chat"}
         </button>
 
         <details
           className="panel workspace-panel"
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
             event.currentTarget.open = false;
             event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
           }}
@@ -302,6 +333,8 @@ export function Sidebar({
               className="message-search"
               onKeyDown={(event) => {
                 if (event.key !== "Escape") return;
+                event.preventDefault();
+                event.stopPropagation();
                 event.currentTarget.open = false;
                 event.currentTarget
                   .querySelector<HTMLElement>("summary")
@@ -313,7 +346,13 @@ export function Sidebar({
                 <input
                   className="input sidebar-search"
                   value={messageSearch}
-                  onChange={(event) => setMessageSearch(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    messageSearchGate.invalidate();
+                    setMessageSearch(value);
+                    setMessageSearchError("");
+                    if (!value.trim()) setMessageResults([]);
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void searchMessages();
                   }}
@@ -323,6 +362,9 @@ export function Sidebar({
                   Search
                 </button>
               </div>
+              {messageSearchError && (
+                <div className="empty-small danger">{messageSearchError}</div>
+              )}
               {messageResults.length > 0 && (
                 <div className="session-list search-results">
                   {messageResults.map((result) => {
@@ -334,7 +376,7 @@ export function Sidebar({
                         type="button"
                         className="session"
                         key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
-                        disabled={!session}
+                        disabled={!session || creatingSession}
                         onClick={() =>
                           session &&
                           onSelectSearchResult(
@@ -366,7 +408,7 @@ export function Sidebar({
                     <button
                       type="button"
                       className={`session ${active ? "active" : ""}`}
-                      disabled={deleting}
+                      disabled={deleting || creatingSession}
                       onClick={() => onSelectSession(session)}
                     >
                       <span className="session-heading">
