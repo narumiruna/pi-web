@@ -65,9 +65,14 @@ Open <http://127.0.0.1:30141>.
 CLI workspace precedence is `--cwd`, then `PI_WEB_CWD`, then `WORKSPACE_ROOT`, then the current directory.
 
 ```bash
+cd /path/to/project && pi-web
 pi-web --cwd /path/to/project --port 30141
 node dist/server/cli.js --cwd /path/to/project --port 30141
 ```
+
+Each pi-web process is scoped to that effective startup workspace. Chat history and full-message search include only sessions whose stored `cwd` exactly matches the normalized startup path; sibling directories, child directories, and Git worktrees are not included. Sessions from other workspaces remain on disk and appear when pi-web is started for their workspace.
+
+The workspace path shown in the sidebar is read-only. New chats use the startup workspace, and pi-web does not offer worktree-session creation because a worktree has a different `cwd`. Existing worktree management APIs remain available.
 
 ## Docker
 

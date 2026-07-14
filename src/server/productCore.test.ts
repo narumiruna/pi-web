@@ -41,10 +41,10 @@ import {
   saveInstructionFile,
   saveMcpServer,
   saveTask,
-  searchSessionEntries,
   toolsForPermissionProfile,
   validationCommand,
 } from "./productCore.js";
+import { searchSessionEntries } from "./sessionSearch.js";
 
 async function tempDir(prefix: string) {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));

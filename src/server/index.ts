@@ -25,8 +25,14 @@ import {
 import { imageMimeFromPath, isTextPath, mimeFromPath } from "./fileTypes.js";
 import { resolveInside } from "./pathSafety.js";
 import { DEFAULT_PORT, isAddressInUse, portCandidates } from "./ports.js";
-import { createCheckpoint, toolsForPermissionProfile } from "./productCore.js";
+import { createCheckpoint } from "./productCore.js";
 import { registerProductRoutes } from "./productRoutes.js";
+import { registerSessionCollectionRoutes } from "./sessionCollectionRoutes.js";
+import {
+  filterSessionsForWorkspace,
+  isSessionInWorkspace,
+  requireWorkspaceCwd,
+} from "./sessionScope.js";
 import { registerTerminalRoutes } from "./terminalRoutes.js";
 import { readWorkspaceImage } from "./workspaceImages.js";
 
@@ -73,19 +79,34 @@ function sessionInfo(
 }
 
 async function listSessions() {
-  const sessions = await SessionManager.listAll();
+  const sessions = filterSessionsForWorkspace(
+    await SessionManager.listAll(),
+    DEFAULT_CWD,
+  );
   return sessions
     .sort((a, b) => b.modified.getTime() - a.modified.getTime())
     .map(sessionInfo);
 }
 
+function sessionFileInWorkspace(file: string): boolean {
+  if (!existsSync(file)) return false;
+  return (
+    safe(() =>
+      isSessionInWorkspace(
+        { cwd: SessionManager.open(file).getCwd() },
+        DEFAULT_CWD,
+      ),
+    ) ?? false
+  );
+}
+
 async function resolveSessionPath(id: string): Promise<string | undefined> {
   const cached = sessionPathCache.get(id);
-  if (cached && existsSync(cached)) return cached;
+  if (cached && sessionFileInWorkspace(cached)) return cached;
   sessionPathCache.delete(id);
   await listSessions();
   const fresh = sessionPathCache.get(id);
-  if (fresh && existsSync(fresh)) return fresh;
+  if (fresh && sessionFileInWorkspace(fresh)) return fresh;
   sessionPathCache.delete(id);
   return undefined;
 }
@@ -270,11 +291,12 @@ async function startSession(
   sessionFile?: string,
   toolNames?: string[],
 ): Promise<WebSession> {
+  const workspaceCwd = requireWorkspaceCwd(cwd, DEFAULT_CWD);
   const sessionManager = sessionFile
     ? SessionManager.open(sessionFile)
-    : SessionManager.create(cwd);
+    : SessionManager.create(workspaceCwd);
   const { session } = await createAgentSession({
-    cwd,
+    cwd: workspaceCwd,
     agentDir: getAgentDir(),
     sessionManager,
     ...(toolNames !== undefined ? { tools: toolNames } : {}),
@@ -287,8 +309,20 @@ async function startSession(
   return webSession;
 }
 
-async function getLiveSession(id: string): Promise<WebSession> {
+function scopedLiveSession(id: string): WebSession | undefined {
   const live = liveSessions.get(id);
+  return live && isSessionInWorkspace(live, DEFAULT_CWD) ? live : undefined;
+}
+
+function scopedSyncedSession(id: string) {
+  const synced = syncSessions.get(id);
+  return synced && isSessionInWorkspace(synced.status(), DEFAULT_CWD)
+    ? synced
+    : undefined;
+}
+
+async function getLiveSession(id: string): Promise<WebSession> {
+  const live = scopedLiveSession(id);
   if (live) return live;
   const file = await resolveSessionPath(id);
   if (!file) throw new Error("Session not found");
@@ -387,46 +421,17 @@ app.get("/api/models", async () => {
   };
 });
 
-app.get("/api/sessions", async (_request, reply) => {
-  try {
-    return { sessions: await listSessions() };
-  } catch (error) {
-    return reply.code(500).send(jsonError(error));
-  }
-});
-
-app.post<{
-  Body: { cwd?: string; toolNames?: string[]; permissionProfile?: string };
-}>("/api/sessions", async (request, reply) => {
-  try {
-    const cwd = resolve(request.body?.cwd || DEFAULT_CWD);
-    const toolNames = toolsForPermissionProfile(
-      request.body?.permissionProfile,
-      request.body?.toolNames,
-    );
-    const session = await startSession(cwd, undefined, toolNames);
-    return {
-      session: {
-        id: session.id,
-        path: session.inner.sessionFile,
-        cwd: session.cwd,
-        created: new Date().toISOString(),
-        modified: new Date().toISOString(),
-        messageCount: 0,
-        firstMessage: "",
-      },
-      status: session.status(),
-    };
-  } catch (error) {
-    return reply.code(400).send(jsonError(error));
-  }
+registerSessionCollectionRoutes(app, {
+  defaultCwd: DEFAULT_CWD,
+  listSessions,
+  startSession,
 });
 
 app.get<{ Params: { id: string }; Querystring: { leafId?: string } }>(
   "/api/sessions/:id/messages",
   async (request, reply) => {
     try {
-      const live = liveSessions.get(request.params.id);
+      const live = scopedLiveSession(request.params.id);
       const file =
         live?.inner.sessionFile ??
         (await resolveSessionPath(request.params.id));
@@ -451,9 +456,9 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/status",
   async (request, reply) => {
     try {
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced) return { running: synced.connected, status: synced.status() };
-      const live = liveSessions.get(request.params.id);
+      const live = scopedLiveSession(request.params.id);
       if (live) return { running: true, status: live.status() };
       const file = await resolveSessionPath(request.params.id);
       if (!file) return reply.code(404).send({ error: "Session not found" });
@@ -487,7 +492,7 @@ app.post<{
     const text = request.body?.text;
     if (typeof text !== "string")
       return reply.code(400).send({ error: "text is required" });
-    const synced = syncSessions.get(request.params.id);
+    const synced = scopedSyncedSession(request.params.id);
     if (synced) {
       if (
         !sendOrReportSynced(synced, {
@@ -524,7 +529,7 @@ app.post<{ Params: { id: string } }>(
   "/api/sessions/:id/abort",
   async (request, reply) => {
     try {
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced) {
         if (!sendOrReportSynced(synced, { type: "abort" }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
@@ -543,7 +548,7 @@ app.post<{ Params: { id: string }; Body: { instructions?: string } }>(
   "/api/sessions/:id/compact",
   async (request, reply) => {
     try {
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced) {
         if (
           !sendOrReportSynced(synced, {
@@ -567,7 +572,7 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/tools",
   async (request, reply) => {
     try {
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced?.connected) {
         const status = synced.status();
         const tools = Array.isArray(status.tools) ? status.tools : [];
@@ -594,7 +599,7 @@ app.post<{ Params: { id: string }; Body: { toolNames?: string[] } }>(
   async (request, reply) => {
     try {
       const toolNames = stringArray(request.body?.toolNames);
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced) {
         if (!sendOrReportSynced(synced, { type: "setTools", toolNames }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
@@ -613,7 +618,7 @@ app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/commands",
   async (request, reply) => {
     try {
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced?.connected) {
         const commands = synced.status().commands;
         return { commands: Array.isArray(commands) ? commands : [] };
@@ -638,7 +643,7 @@ app.post<{
       return reply
         .code(400)
         .send({ error: "provider and modelId are required" });
-    const synced = syncSessions.get(request.params.id);
+    const synced = scopedSyncedSession(request.params.id);
     if (synced) {
       if (!sendOrReportSynced(synced, { type: "setModel", provider, modelId }))
         return reply.code(409).send({ error: "Pi extension disconnected" });
@@ -660,7 +665,7 @@ app.post<{ Params: { id: string }; Body: { level?: string } }>(
     try {
       const level = request.body?.level;
       if (!level) return reply.code(400).send({ error: "level is required" });
-      const synced = syncSessions.get(request.params.id);
+      const synced = scopedSyncedSession(request.params.id);
       if (synced) {
         if (!sendOrReportSynced(synced, { type: "setThinking", level }))
           return reply.code(409).send({ error: "Pi extension disconnected" });
@@ -678,7 +683,7 @@ app.post<{ Params: { id: string }; Body: { level?: string } }>(
 app.get<{ Params: { id: string } }>(
   "/api/sessions/:id/events",
   async (request, reply) => {
-    const synced = syncSessions.get(request.params.id);
+    const synced = scopedSyncedSession(request.params.id);
     if (synced) return sendSyncedEvents(request, reply, synced);
 
     let session: WebSession;
