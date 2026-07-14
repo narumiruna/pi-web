@@ -75,4 +75,48 @@ describe("session collection routes", () => {
     });
     expect(startSession).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["an array body", [], "Request body must be an object"],
+    ["a numeric cwd", { cwd: 42 }, "Session cwd must be a string"],
+    [
+      "invalid tool names",
+      { toolNames: ["bash", 42] },
+      "toolNames must be an array of strings",
+    ],
+    [
+      "a non-string permission profile",
+      { permissionProfile: 42 },
+      "permissionProfile must be a string",
+    ],
+  ])("rejects %s", async (_label, payload, error) => {
+    const { app, startSession } = setup();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      payload,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error });
+    expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a JSON null body", async () => {
+    const { app, startSession } = setup();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/sessions",
+      headers: { "content-type": "application/json" },
+      payload: "null",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: "Request body must be an object",
+    });
+    expect(startSession).not.toHaveBeenCalled();
+  });
 });

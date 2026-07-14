@@ -37,6 +37,8 @@ describe("workspace session scope", () => {
     expect(isSessionInWorkspace(session("missing"), workspace)).toBe(false);
     expect(isSessionInWorkspace(session("empty", ""), workspace)).toBe(false);
     expect(isSessionInWorkspace(session("invalid", 42), workspace)).toBe(false);
+    expect(isSessionInWorkspace(null, workspace)).toBe(false);
+    expect(isSessionInWorkspace("invalid", workspace)).toBe(false);
   });
 
   it("filters without changing the order of matching sessions", () => {
@@ -60,6 +62,17 @@ describe("workspace session scope", () => {
   it("rejects a requested cwd outside the startup workspace", () => {
     expect(() => requireWorkspaceCwd("/workspace/other", workspace)).toThrow(
       "Session cwd must match the startup workspace",
+    );
+  });
+
+  it.each([
+    null,
+    42,
+    {},
+    [],
+  ])("rejects a non-string requested cwd: %j", (requestedCwd) => {
+    expect(() => requireWorkspaceCwd(requestedCwd, workspace)).toThrow(
+      "Session cwd must be a string",
     );
   });
 });

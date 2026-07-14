@@ -31,6 +31,7 @@ import { registerSessionCollectionRoutes } from "./sessionCollectionRoutes.js";
 import {
   filterSessionsForWorkspace,
   isSessionInWorkspace,
+  requireWorkspaceCwd,
 } from "./sessionScope.js";
 import { registerTerminalRoutes } from "./terminalRoutes.js";
 import { readWorkspaceImage } from "./workspaceImages.js";
@@ -290,11 +291,12 @@ async function startSession(
   sessionFile?: string,
   toolNames?: string[],
 ): Promise<WebSession> {
+  const workspaceCwd = requireWorkspaceCwd(cwd, DEFAULT_CWD);
   const sessionManager = sessionFile
     ? SessionManager.open(sessionFile)
-    : SessionManager.create(cwd);
+    : SessionManager.create(workspaceCwd);
   const { session } = await createAgentSession({
-    cwd,
+    cwd: workspaceCwd,
     agentDir: getAgentDir(),
     sessionManager,
     ...(toolNames !== undefined ? { tools: toolNames } : {}),

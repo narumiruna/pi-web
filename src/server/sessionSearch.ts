@@ -16,6 +16,7 @@ export type SessionSearchResult = {
 
 type SessionReader = { getEntries: () => unknown[] };
 type OpenSession = (path: string) => SessionReader;
+type ListSessions = () => Promise<SearchableSession[]>;
 
 type RecordValue = Record<string, unknown>;
 
@@ -65,6 +66,14 @@ export function searchSessionEntries(
     });
   });
   return results;
+}
+
+export async function searchScopedSessions(
+  query: string,
+  listSessions: ListSessions,
+): Promise<SessionSearchResult[]> {
+  if (!query.trim()) return [];
+  return searchSessions(query, await listSessions());
 }
 
 export async function searchSessions(

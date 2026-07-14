@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { filterSessionsForWorkspace } from "./sessionScope.js";
-import { searchSessionEntries, searchSessions } from "./sessionSearch.js";
+import {
+  searchScopedSessions,
+  searchSessionEntries,
+  searchSessions,
+} from "./sessionSearch.js";
 
 const entries = (text: string) => [
   {
@@ -21,6 +25,13 @@ describe("workspace session search", () => {
         }),
       ],
     );
+  });
+
+  it("does not list sessions for an empty query", async () => {
+    const listSessions = vi.fn(async () => []);
+
+    expect(await searchScopedSessions("   ", listSessions)).toEqual([]);
+    expect(listSessions).not.toHaveBeenCalled();
   });
 
   it("opens and searches only sessions already selected by workspace scope", async () => {

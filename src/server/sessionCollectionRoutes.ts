@@ -23,6 +23,29 @@ function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
 }
 
+function requestBody(value: unknown): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Request body must be an object");
+  return value as Record<string, unknown>;
+}
+
+function optionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${name} must be a string`);
+  return value;
+}
+
+function optionalStringArray(
+  value: unknown,
+  name: string,
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
+    throw new Error(`${name} must be an array of strings`);
+  return value;
+}
+
 export function registerSessionCollectionRoutes(
   app: FastifyInstance,
   deps: SessionCollectionDeps,
@@ -35,14 +58,13 @@ export function registerSessionCollectionRoutes(
     }
   });
 
-  app.post<{
-    Body: { cwd?: string; toolNames?: string[]; permissionProfile?: string };
-  }>("/api/sessions", async (request, reply) => {
+  app.post<{ Body: unknown }>("/api/sessions", async (request, reply) => {
     try {
-      const cwd = requireWorkspaceCwd(request.body?.cwd, deps.defaultCwd);
+      const body = requestBody(request.body);
+      const cwd = requireWorkspaceCwd(body.cwd, deps.defaultCwd);
       const toolNames = toolsForPermissionProfile(
-        request.body?.permissionProfile,
-        request.body?.toolNames,
+        optionalString(body.permissionProfile, "permissionProfile"),
+        optionalStringArray(body.toolNames, "toolNames"),
       );
       const session = await deps.startSession(cwd, undefined, toolNames);
       return {

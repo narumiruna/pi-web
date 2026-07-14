@@ -38,7 +38,7 @@ import {
   saveTask,
   writeJson,
 } from "./productCore.js";
-import { searchSessions } from "./sessionSearch.js";
+import { searchScopedSessions } from "./sessionSearch.js";
 
 function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
@@ -301,14 +301,17 @@ export function registerProductRoutes(app: FastifyInstance, deps: CompatDeps) {
     async (request) => permissionSettings(request.body?.profile),
   );
 
-  app.get<{ Querystring: { q?: string } }>(
+  app.get<{ Querystring: { q?: unknown } }>(
     "/api/search/sessions",
-    async (request) => ({
-      results: await searchSessions(
-        request.query.q ?? "",
-        await deps.listSessions(),
-      ),
-    }),
+    async (request, reply) => {
+      const query = request.query.q;
+      if (query === undefined) return { results: [] };
+      if (typeof query !== "string")
+        return reply.code(400).send({ error: "q must be a string" });
+      return {
+        results: await searchScopedSessions(query, deps.listSessions),
+      };
+    },
   );
   app.get("/api/bookmarks", async () => ({ bookmarks: await listBookmarks() }));
   app.post<{ Body: Record<string, unknown> }>(
