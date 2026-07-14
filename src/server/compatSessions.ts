@@ -9,6 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { escapeHtml } from "./compatShared.js";
 import type { CompatDeps as Deps } from "./compatTypes.js";
 import { sessionExport } from "./productCore.js";
+import { isSessionInWorkspace } from "./sessionScope.js";
 
 export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
   app.get<{ Params: { id: string }; Querystring: { includeState?: string } }>(
@@ -42,7 +43,7 @@ export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
   app.delete<{ Params: { id: string } }>(
     "/api/sessions/:id",
     async (request, reply) => {
-      const liveSession = deps.liveSessions.get(request.params.id);
+      const liveSession = scopedLiveSession(deps, request.params.id);
       const file = await deps.resolveSessionPath(request.params.id);
       if (!file && !liveSession)
         return reply.code(404).send({ error: "Session not found" });
@@ -99,8 +100,13 @@ export function registerSessionCompatRoutes(app: FastifyInstance, deps: Deps) {
   );
 }
 
-async function sessionManagerFor(deps: Deps, id: string) {
+function scopedLiveSession(deps: Deps, id: string) {
   const live = deps.liveSessions.get(id);
+  return live && isSessionInWorkspace(live, deps.defaultCwd) ? live : undefined;
+}
+
+async function sessionManagerFor(deps: Deps, id: string) {
+  const live = scopedLiveSession(deps, id);
   const file = live?.inner.sessionFile ?? (await deps.resolveSessionPath(id));
   if (file && existsSync(file))
     return { manager: SessionManager.open(file), file };

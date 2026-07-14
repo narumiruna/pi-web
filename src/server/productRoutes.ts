@@ -36,9 +36,9 @@ import {
   saveInstructionFile,
   saveMcpServer,
   saveTask,
-  searchSessions,
   writeJson,
 } from "./productCore.js";
+import { searchSessions } from "./sessionSearch.js";
 
 function jsonError(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : String(error) };
@@ -304,7 +304,10 @@ export function registerProductRoutes(app: FastifyInstance, deps: CompatDeps) {
   app.get<{ Querystring: { q?: string } }>(
     "/api/search/sessions",
     async (request) => ({
-      results: await searchSessions(request.query.q ?? ""),
+      results: await searchSessions(
+        request.query.q ?? "",
+        await deps.listSessions(),
+      ),
     }),
   );
   app.get("/api/bookmarks", async () => ({ bookmarks: await listBookmarks() }));

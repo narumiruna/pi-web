@@ -25,6 +25,7 @@ import { PreviewPane } from "./PreviewPane";
 import { ReplayPane } from "./ReplayPane";
 import { isMobileLayout, shouldAutoHideSidebar } from "./responsiveLayout";
 import { Sidebar } from "./Sidebar";
+import { sessionCreationPayload } from "./sessionCreation";
 import { shortcutAction, shortcutHelp } from "./shortcuts";
 import { TerminalPane } from "./TerminalPane";
 import type {
@@ -89,7 +90,6 @@ function App() {
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<AppTab>("chat");
   const [permissionProfile, setPermissionProfile] = useState("ask");
-  const [newWorktree, setNewWorktree] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [usageHistory, setUsageHistory] = useState<UsageSnapshot[]>([]);
   const [lastValidation, setLastValidation] =
@@ -448,18 +448,15 @@ function App() {
     setFile(null);
   }
 
-  async function createAndSelectSession(
-    resolveCwd: () => Promise<string>,
-  ): Promise<SessionInfo> {
+  async function createAndSelectSession(): Promise<SessionInfo> {
     return sessionCreationFlight.run(async () => {
       setCreatingSession(true);
       try {
-        const sessionCwd = await resolveCwd();
         const data = await api<{ session: SessionInfo; status: any }>(
           "/api/sessions",
           {
             method: "POST",
-            body: JSON.stringify({ cwd: sessionCwd, permissionProfile }),
+            body: JSON.stringify(sessionCreationPayload(permissionProfile)),
           },
         );
         resetSessionView();
@@ -476,24 +473,7 @@ function App() {
   }
 
   async function newSession(): Promise<SessionInfo> {
-    return createAndSelectSession(async () => {
-      if (!newWorktree) return cwd;
-      const worktree = await api<{ cwd: string }>("/api/worktrees", {
-        method: "POST",
-        body: JSON.stringify({ cwd, title: "parallel-task" }),
-      });
-      return worktree.cwd;
-    });
-  }
-
-  async function newWorktreeSession(title: string): Promise<void> {
-    await createAndSelectSession(async () => {
-      const worktree = await api<{ cwd: string }>("/api/worktrees", {
-        method: "POST",
-        body: JSON.stringify({ cwd, title }),
-      });
-      return worktree.cwd;
-    });
+    return createAndSelectSession();
   }
 
   async function abortAgent() {
@@ -658,7 +638,6 @@ function App() {
         files={files}
         filePath={filePath}
         activeFilePath={file?.path ?? ""}
-        onCwd={setCwd}
         onNewSession={() =>
           void newSession().catch((error) =>
             setNotice(error instanceof Error ? error.message : String(error)),
@@ -674,8 +653,6 @@ function App() {
             body: JSON.stringify({ profile }),
           });
         }}
-        newWorktree={newWorktree}
-        onNewWorktree={setNewWorktree}
         onSelectSession={(session) => {
           resetSessionView();
           selectedRef.current = session;
@@ -792,7 +769,6 @@ function App() {
             onNotice={setNotice}
             onOpenDiff={() => setTab("diff")}
             onOpenValidation={() => setTab("validation")}
-            onOpenWorktreeSession={newWorktreeSession}
           />
         )}
         {tab === "evaluation" && <EvaluationPane onNotice={setNotice} />}

@@ -27,7 +27,6 @@ export function WorkbenchPane({
   onNotice,
   onOpenDiff,
   onOpenValidation,
-  onOpenWorktreeSession,
 }: {
   cwd: string;
   sessionId?: string;
@@ -35,12 +34,10 @@ export function WorkbenchPane({
   onNotice: (message: string) => void;
   onOpenDiff: () => void;
   onOpenValidation: () => void;
-  onOpenWorktreeSession: (title: string) => Promise<void>;
 }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
   const [issue, setIssue] = useState("");
-  const [issueWorktree, setIssueWorktree] = useState(false);
 
   const refresh = useCallback(async () => {
     const data = await api<{ tasks: Task[] }>("/api/tasks");
@@ -80,11 +77,6 @@ export function WorkbenchPane({
       onNotice(
         `gh unavailable (${payload.error ?? "not installed"}); created prompt draft and task card only`,
       );
-      return;
-    }
-    if (issueWorktree) {
-      await onOpenWorktreeSession(payload.title);
-      onNotice("Issue imported; worktree session created");
       return;
     }
     onNotice("Issue imported to chat draft");
@@ -149,14 +141,6 @@ export function WorkbenchPane({
             onChange={(event) => setIssue(event.target.value)}
             placeholder="GitHub issue URL or #"
           />
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={issueWorktree}
-              onChange={(event) => setIssueWorktree(event.target.checked)}
-            />
-            Worktree session
-          </label>
           <button type="button" onClick={() => void importIssue()}>
             Import issue
           </button>

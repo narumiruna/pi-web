@@ -14,7 +14,6 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { resolveInside } from "./pathSafety.js";
 
 export type CommandResult = {
@@ -683,52 +682,6 @@ export function sessionExport(
         `## ${message.role ?? "event"}\n\n${redactSecrets(textFromContent(message.content))}`,
     )
     .join("\n\n");
-}
-
-export function searchSessionEntries(
-  sessionId: string,
-  entries: any[],
-  query: string,
-  fallbackTimestamp = "",
-) {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const results: any[] = [];
-  entries.forEach((entry: any, index: number) => {
-    const message = entry.message;
-    const text = textFromContent(message?.content);
-    if (text.toLowerCase().includes(q))
-      results.push({
-        sessionId,
-        messageIndex: index,
-        role: message?.role,
-        excerpt: text.slice(0, 240),
-        timestamp: entry.timestamp ?? fallbackTimestamp,
-      });
-  });
-  return results;
-}
-
-export async function searchSessions(query: string) {
-  if (!query.trim()) return [];
-  const sessions = await SessionManager.listAll();
-  const results: any[] = [];
-  for (const session of sessions) {
-    try {
-      const manager = SessionManager.open(session.path);
-      results.push(
-        ...searchSessionEntries(
-          session.id,
-          manager.getEntries(),
-          query,
-          session.modified.toISOString(),
-        ),
-      );
-    } catch {
-      continue;
-    }
-  }
-  return results.slice(0, 50);
 }
 
 export function safeReplayPath(requestedPath: string) {

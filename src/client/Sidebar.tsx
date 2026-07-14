@@ -22,14 +22,11 @@ type SidebarProps = {
   files: FileEntry[];
   filePath: string;
   activeFilePath: string;
-  onCwd: (value: string) => void;
   onNewSession: () => void;
   creatingSession: boolean;
   onHide: () => void;
   permissionProfile: string;
   onPermissionProfile: (value: string) => void;
-  newWorktree: boolean;
-  onNewWorktree: (value: boolean) => void;
   onSelectSession: (session: SessionInfo) => void;
   onSelectSearchResult: (session: SessionInfo, messageIndex: number) => void;
   onDeleteSession: (
@@ -91,14 +88,11 @@ export function Sidebar({
   files,
   filePath,
   activeFilePath,
-  onCwd,
   onNewSession,
   creatingSession,
   onHide,
   permissionProfile,
   onPermissionProfile,
-  newWorktree,
-  onNewWorktree,
   onSelectSession,
   onSelectSearchResult,
   onDeleteSession,
@@ -259,11 +253,7 @@ export function Sidebar({
           <div className="workspace-settings-body">
             <label className="workspace-input">
               <span className="panel-title">Path</span>
-              <input
-                className="input"
-                value={cwd}
-                onChange={(event) => onCwd(event.target.value)}
-              />
+              <input className="input" value={cwd} readOnly />
             </label>
             <label className="workspace-input">
               <span className="panel-title">Permission</span>
@@ -276,14 +266,6 @@ export function Sidebar({
                 <option value="ask">ask</option>
                 <option value="full">full</option>
               </select>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={newWorktree}
-                onChange={(event) => onNewWorktree(event.target.checked)}
-              />
-              Create parallel worktree
             </label>
             <button
               type="button"
