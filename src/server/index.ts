@@ -4,11 +4,10 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  AuthStorage,
   buildSessionContext,
   createAgentSession,
   getAgentDir,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import fastifyStatic from "@fastify/static";
@@ -46,6 +45,7 @@ const DEFAULT_CWD = resolve(
   process.env.PI_WEB_CWD ?? process.env.WORKSPACE_ROOT ?? process.cwd(),
 );
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
+const modelRuntime = await ModelRuntime.create();
 const sessionPathCache = new Map<string, string>();
 const liveSessions = new Map<string, WebSession>();
 const syncSessions = new ExtensionSyncRegistry();
@@ -298,6 +298,7 @@ async function startSession(
   const { session } = await createAgentSession({
     cwd: workspaceCwd,
     agentDir: getAgentDir(),
+    modelRuntime,
     sessionManager,
     ...(toolNames !== undefined ? { tools: toolNames } : {}),
   });
@@ -394,10 +395,8 @@ app.get("/api/config", async () => ({
 }));
 
 app.get("/api/models", async () => {
-  const authStorage = AuthStorage.create();
-  const modelRegistry = ModelRegistry.create(authStorage);
-  const models = await modelRegistry.getAvailable();
-  const modelList = modelRegistry.getAll().map((model) => ({
+  const models = await modelRuntime.getAvailable();
+  const modelList = modelRuntime.getModels().map((model) => ({
     provider: model.provider,
     id: model.id,
     modelId: model.id,
@@ -650,7 +649,7 @@ app.post<{
       return { status: synced.status() };
     }
     const session = await getLiveSession(request.params.id);
-    const model = session.inner.modelRegistry.find(provider, modelId);
+    const model = session.inner.modelRuntime.getModel(provider, modelId);
     if (!model) return reply.code(404).send({ error: "Model not found" });
     await session.inner.setModel(model);
     return { status: session.status() };
@@ -884,6 +883,7 @@ registerTerminalRoutes(app, DEFAULT_CWD);
 
 const routeDeps = {
   defaultCwd: DEFAULT_CWD,
+  modelRuntime,
   listSessions,
   resolveSessionPath,
   getLiveSession,
