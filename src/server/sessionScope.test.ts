@@ -65,14 +65,12 @@ describe("workspace session scope", () => {
     );
   });
 
-  it.each([
-    null,
-    42,
-    {},
-    [],
-  ])("rejects a non-string requested cwd: %j", (requestedCwd) => {
-    expect(() => requireWorkspaceCwd(requestedCwd, workspace)).toThrow(
-      "Session cwd must be a string",
-    );
-  });
+  it.each([null, 42, {}, []])(
+    "rejects a non-string requested cwd: %j",
+    (requestedCwd) => {
+      expect(() => requireWorkspaceCwd(requestedCwd, workspace)).toThrow(
+        "Session cwd must be a string",
+      );
+    },
+  );
 });
