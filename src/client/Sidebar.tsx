@@ -222,20 +222,6 @@ export function Sidebar({
           </button>
         </div>
 
-        <button
-          type="button"
-          className="primary new-session-button"
-          disabled={!canStartSession || creatingSession}
-          title={
-            canStartSession
-              ? "Start a new chat in this workspace"
-              : "Set a workspace path before starting a chat"
-          }
-          onClick={onNewSession}
-        >
-          {creatingSession ? "Starting…" : "New chat"}
-        </button>
-
         <details
           className="panel workspace-panel"
           onKeyDown={(event) => {
@@ -276,6 +262,20 @@ export function Sidebar({
             </button>
           </div>
         </details>
+
+        <button
+          type="button"
+          className="primary new-session-button"
+          disabled={!canStartSession || creatingSession}
+          title={
+            canStartSession
+              ? "Start a new chat in this workspace"
+              : "Set a workspace path before starting a chat"
+          }
+          onClick={onNewSession}
+        >
+          {creatingSession ? "Starting…" : "New chat"}
+        </button>
 
         <div
           className="sidebar-tab-buttons"
@@ -399,12 +399,16 @@ export function Sidebar({
                         )}
                         {active && <em>active</em>}
                       </span>
-                      <small title={session.cwd}>
-                        {workspaceName(session.cwd)}
-                      </small>
                       <span className="session-meta">
-                        {formatRelativeTime(session.modified)} ·{" "}
-                        {session.messageCount} messages
+                        <span title={session.cwd}>
+                          {workspaceName(session.cwd)}
+                        </span>
+                        <span
+                          title={`${formatRelativeTime(session.modified)} · ${session.messageCount} messages`}
+                        >
+                          {formatRelativeTime(session.modified)} ·{" "}
+                          {session.messageCount} msgs
+                        </span>
                       </span>
                     </button>
                     <button

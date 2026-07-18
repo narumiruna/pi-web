@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   navigationGroups,
   PRIMARY_DESTINATIONS,
+  SECONDARY_NAVIGATION_LABEL,
   statusLabel,
 } from "./AppNavigation";
 
@@ -11,6 +12,10 @@ describe("simplified application navigation", () => {
       { tab: "chat", label: "Chat" },
       { tab: "terminal", label: "Terminal" },
     ]);
+  });
+
+  it("labels secondary destinations as workspace tools", () => {
+    expect(SECONDARY_NAVIGATION_LABEL).toBe("Tools");
   });
 
   it("groups every secondary destination by user intent", () => {

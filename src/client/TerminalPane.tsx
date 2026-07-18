@@ -190,47 +190,81 @@ export function TerminalPane({
             {cwd || "workspace"}
           </div>
         </div>
-        <div className="terminal-status">
-          <span className="status-dot ok" aria-hidden="true" />
-          connected
-        </div>
-      </header>
-      <div className="terminal-toolbar">
-        <button
-          type="button"
-          title="Ctrl/⌘ Shift L"
-          onClick={() => sendToChat(80)}
-        >
-          Send last 80 lines to chat
-        </button>
-        <button type="button" onClick={sendSelectionToChat}>
-          Send selection to chat
-        </button>
-        <input
-          className="input"
-          value={snippetName}
-          onChange={(event) => setSnippetName(event.target.value)}
-          placeholder="Snippet name"
-        />
-        <input
-          className="input"
-          value={snippetCommand}
-          onChange={(event) => setSnippetCommand(event.target.value)}
-          placeholder="Command"
-        />
-        <button type="button" onClick={rememberSnippet}>
-          Save snippet
-        </button>
-        {snippets.map((snippet) => (
+        <div className="terminal-header-actions">
+          <div className="terminal-status" role="status">
+            <span className="status-dot ok" aria-hidden="true" />
+            connected
+          </div>
           <button
             type="button"
-            key={snippet.name}
-            onClick={() => run(snippet.command)}
+            title="Send recent output to chat · Ctrl/⌘ Shift L"
+            onClick={() => sendToChat(80)}
           >
-            {snippet.name}
+            Send recent output
           </button>
-        ))}
-      </div>
+          <button type="button" onClick={sendSelectionToChat}>
+            Send selection
+          </button>
+          <details
+            className="terminal-snippets"
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              event.currentTarget.open = false;
+              event.currentTarget
+                .querySelector<HTMLElement>("summary")
+                ?.focus();
+            }}
+          >
+            <summary>
+              Snippets{snippets.length ? ` · ${snippets.length}` : ""}
+            </summary>
+            <div className="terminal-snippets-menu">
+              <div className="terminal-snippet-form">
+                <label>
+                  <span>Name</span>
+                  <input
+                    className="input"
+                    value={snippetName}
+                    onChange={(event) => setSnippetName(event.target.value)}
+                    placeholder="e.g. test"
+                  />
+                </label>
+                <label>
+                  <span>Command</span>
+                  <input
+                    className="input"
+                    value={snippetCommand}
+                    onChange={(event) => setSnippetCommand(event.target.value)}
+                    placeholder="npm test"
+                  />
+                </label>
+                <button type="button" onClick={rememberSnippet}>
+                  Save snippet
+                </button>
+              </div>
+              {snippets.length > 0 && (
+                <div
+                  className="terminal-saved-snippets"
+                  aria-label="Saved snippets"
+                >
+                  {snippets.map((snippet) => (
+                    <button
+                      type="button"
+                      key={snippet.name}
+                      title={snippet.command}
+                      onClick={() => run(snippet.command)}
+                    >
+                      <span>{snippet.name}</span>
+                      <code>{snippet.command}</code>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+      </header>
       <div className="terminal-frame">
         <div className="terminal-shell" ref={terminalRef} />
       </div>

@@ -20,6 +20,8 @@ export const PRIMARY_DESTINATIONS = [
   { tab: "terminal", label: "Terminal" },
 ] as const satisfies readonly NavigationItem[];
 
+export const SECONDARY_NAVIGATION_LABEL = "Tools";
+
 const BASE_NAVIGATION_GROUPS: readonly NavigationGroup[] = [
   {
     label: "Workspace tools",
@@ -125,7 +127,8 @@ export function AppNavigation({
             }}
           >
             <summary className={activeSecondary ? "active" : ""}>
-              More{activeSecondary ? ` · ${activeSecondary.label}` : ""}
+              {SECONDARY_NAVIGATION_LABEL}
+              {activeSecondary ? ` · ${activeSecondary.label}` : ""}
             </summary>
             <div className="more-tabs-menu">
               {groups.map((group) => (
@@ -148,7 +151,11 @@ export function AppNavigation({
           </details>
         </nav>
       </div>
-      <div className="statusline" aria-live="polite">
+      <div
+        className="statusline"
+        role="status"
+        aria-label={`Agent status: ${statusLabel(running)}`}
+      >
         <span
           className={`status-dot ${running ? "ok" : "muted"}`}
           aria-hidden="true"
