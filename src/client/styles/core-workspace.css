@@ -142,8 +142,9 @@
   box-shadow: none;
 }
 
-.session-row.active .session-delete {
-  opacity: 0;
+.session-row:hover .session-delete,
+.session-row:focus-within .session-delete {
+  opacity: 1;
 }
 
 .topbar {
@@ -277,7 +278,6 @@
   width: 100%;
   min-width: 0;
   padding: 0;
-  overflow: hidden;
   background: var(--bg);
   background-image: none;
 }
@@ -336,7 +336,10 @@
   display: grid;
   width: min(420px, calc(100vw - 32px));
   gap: 12px;
+  max-height: min(560px, calc(100dvh - 156px));
   padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--panel);
