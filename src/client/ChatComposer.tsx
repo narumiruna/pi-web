@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createSingleFlight } from "./asyncState";
+import { createAttachmentId } from "./attachmentIds";
 import { getPastedImageFiles } from "./clipboardImages";
 import { appendDraftText, type ComposerIntent } from "./composerIntents";
 import { clearSubmittedImages, clearSubmittedText } from "./composerState";
@@ -112,6 +113,7 @@ export function ChatComposer({
             const reader = new FileReader();
             reader.onload = () =>
               resolve({
+                id: createAttachmentId(),
                 data: String(reader.result).split(",")[1] ?? "",
                 mimeType: file.type,
                 previewUrl: URL.createObjectURL(file),
@@ -154,11 +156,7 @@ export function ChatComposer({
         {images.length > 0 && (
           <div className="attachments">
             {images.map((image) => (
-              <img
-                key={`${image.mimeType}:${image.previewUrl}`}
-                src={image.previewUrl}
-                alt="preview"
-              />
+              <img key={image.id} src={image.previewUrl} alt="preview" />
             ))}
           </div>
         )}

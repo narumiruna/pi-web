@@ -270,6 +270,8 @@
   right: 7px;
   bottom: calc(100% + 6px);
   left: 7px;
+  width: auto;
+  transform: none;
 }
 
 .terminal-panel {
@@ -297,6 +299,8 @@
 
 .terminal-header-actions {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
