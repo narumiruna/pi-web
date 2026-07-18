@@ -35,6 +35,7 @@ export type FileEntry = {
   type: "file" | "directory";
 };
 export type AttachedImage = {
+  id: string;
   data: string;
   mimeType: string;
   previewUrl: string;

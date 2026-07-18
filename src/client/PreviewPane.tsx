@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { createAttachmentId } from "./attachmentIds";
 import { COMPOSER_ATTACH_IMAGE_EVENT } from "./composerIntents";
 import { previewUrlAllowed } from "./previewUrl";
 
 function attachImage(image: {
+  id: string;
   data: string;
   mimeType: string;
   previewUrl: string;
@@ -45,6 +47,7 @@ export function PreviewPane({
     });
     const dataUrl = canvas.toDataURL("image/png");
     attachImage({
+      id: createAttachmentId(),
       data: dataUrl.split(",")[1] ?? "",
       mimeType: "image/png",
       previewUrl: dataUrl,

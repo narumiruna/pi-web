@@ -17,6 +17,7 @@ function isAttachedImage(value: unknown): value is AttachedImage {
   return (
     Boolean(value) &&
     typeof value === "object" &&
+    typeof (value as AttachedImage).id === "string" &&
     typeof (value as AttachedImage).data === "string" &&
     typeof (value as AttachedImage).mimeType === "string" &&
     typeof (value as AttachedImage).previewUrl === "string"

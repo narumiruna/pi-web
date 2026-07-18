@@ -16,6 +16,7 @@ describe("composer intents", () => {
 
   it("turns global draft, image, and focus events into queued composer intents", () => {
     const image: AttachedImage = {
+      id: "attachment-1",
       data: "abc",
       mimeType: "image/png",
       previewUrl: "blob:abc",
