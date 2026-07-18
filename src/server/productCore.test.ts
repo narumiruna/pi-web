@@ -29,6 +29,7 @@ import {
   readMcpConfig,
   redactSecrets,
   removeWorktree,
+  resolvePermissionProfile,
   restoreInstructionFile,
   restoreMcpConfig,
   revertGitChange,
@@ -268,10 +269,12 @@ describe("product core", () => {
     expect(await readFile(join(dir, "secret.txt"), "utf8")).toBe("keep");
   });
 
-  it("resolves permission profiles", async () => {
+  it("supports only safe and full permission profiles", async () => {
     expect(toolsForPermissionProfile("safe", ["bash"])).toEqual([]);
     expect(toolsForPermissionProfile("full", ["bash"])).toEqual(["bash"]);
-    expect(await permissionSettings("safe")).toMatchObject({ profile: "safe" });
+    expect(resolvePermissionProfile("ask")).toBe("full");
+    expect(await permissionSettings()).toMatchObject({ profile: "full" });
+    expect(await permissionSettings("ask")).toMatchObject({ profile: "full" });
   });
 
   it("reverts a single hunk via reverse patch", async () => {

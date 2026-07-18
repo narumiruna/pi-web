@@ -263,7 +263,6 @@ export function Sidebar({
                 onChange={(event) => onPermissionProfile(event.target.value)}
               >
                 <option value="safe">safe</option>
-                <option value="ask">ask</option>
                 <option value="full">full</option>
               </select>
             </label>
