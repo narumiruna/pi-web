@@ -3,16 +3,15 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  AuthStorage,
   DefaultResourceLoader,
   getAgentDir,
-  ModelRegistry,
   parseFrontmatter,
 } from "@earendil-works/pi-coding-agent";
 import type { FastifyInstance } from "fastify";
 import { registerFileCompatRoutes } from "./compatFiles.js";
 import { registerSessionCompatRoutes } from "./compatSessions.js";
 import type { CompatDeps as Deps } from "./compatTypes.js";
+import { saveApiKey } from "./modelRuntimeCompat.js";
 
 export function registerCompatRoutes(app: FastifyInstance, deps: Deps) {
   addBinaryParsers(app);
@@ -39,14 +38,15 @@ function addBinaryParsers(app: FastifyInstance) {
 }
 
 function registerAuthRoutes(app: FastifyInstance, deps: Deps) {
-  app.get("/api/auth/all-providers", async () => providerResponse());
+  app.get("/api/auth/all-providers", async () =>
+    providerResponse(deps.modelRuntime),
+  );
   app.get<{ Params: { provider: string } }>(
     "/api/auth/api-key/:provider",
     async (request) => {
-      const auth = AuthStorage.create();
       return {
         provider: request.params.provider,
-        auth: auth.getAuthStatus(request.params.provider),
+        auth: deps.modelRuntime.getProviderAuthStatus(request.params.provider),
       };
     },
   );
@@ -56,32 +56,24 @@ function registerAuthRoutes(app: FastifyInstance, deps: Deps) {
   }>("/api/auth/api-key/:provider", async (request, reply) => {
     if (!request.body?.key)
       return reply.code(400).send({ error: "key required" });
-    AuthStorage.create().set(request.params.provider, {
-      type: "api_key",
-      key: request.body.key,
-      env: request.body.env,
-    });
+    await saveApiKey(
+      deps.modelRuntime,
+      request.params.provider,
+      request.body.key,
+      request.body.env,
+    );
     refreshLiveAuth(deps);
     return { success: true };
   });
   app.delete<{ Params: { provider: string } }>(
     "/api/auth/api-key/:provider",
     async (request) => {
-      AuthStorage.create().remove(request.params.provider);
+      await deps.modelRuntime.logout(request.params.provider);
       refreshLiveAuth(deps);
       return { success: true };
     },
   );
 }
-const OAUTH_PROVIDERS_WITH_API_KEYS = new Set(["anthropic"]);
-
-function canUseApiKey(provider: string, oauthProviderIds: Set<string>) {
-  return (
-    !oauthProviderIds.has(provider) ||
-    OAUTH_PROVIDERS_WITH_API_KEYS.has(provider)
-  );
-}
-
 function providerAuthTypes(supportsOAuth: boolean, supportsApiKey: boolean) {
   return [
     ...(supportsOAuth ? ["oauth"] : []),
@@ -92,31 +84,28 @@ function providerAuthTypes(supportsOAuth: boolean, supportsApiKey: boolean) {
 function refreshLiveAuth(deps: Deps) {
   for (const session of deps.liveSessions.values()) {
     try {
-      session.inner.modelRegistry.authStorage.reload();
-      session.inner.modelRegistry.refresh();
       session.broadcast({ type: "status", status: session.status() });
     } catch {
-      // Best effort; stale sessions will refresh on next process start.
+      // Best effort; a disconnected session does not block credential changes.
     }
   }
 }
 
-function providerResponse() {
-  const auth = AuthStorage.create();
-  const registry = ModelRegistry.create(auth);
-  const models = registry.getAll();
-  const oauthProviders = auth.getOAuthProviders();
-  const oauthProviderIds = new Set(
-    oauthProviders.map((provider) => provider.id),
+function providerResponse(modelRuntime: Deps["modelRuntime"]) {
+  const models = modelRuntime.getModels();
+  const runtimeProviders = modelRuntime.getProviders();
+  const runtimeProvidersById = new Map(
+    runtimeProviders.map((provider) => [provider.id, provider]),
   );
   const providers = new Map<string, any>();
   for (const model of models) {
-    const supportsOAuth = oauthProviderIds.has(model.provider);
-    const supportsApiKey = canUseApiKey(model.provider, oauthProviderIds);
+    const runtimeProvider = runtimeProvidersById.get(model.provider);
+    const supportsOAuth = Boolean(runtimeProvider?.auth.oauth);
+    const supportsApiKey = Boolean(runtimeProvider?.auth.apiKey?.login);
     const current = providers.get(model.provider) ?? {
       id: model.provider,
-      name: registry.getProviderDisplayName(model.provider),
-      auth: registry.getProviderAuthStatus(model.provider),
+      name: runtimeProvider?.name ?? model.provider,
+      auth: modelRuntime.getProviderAuthStatus(model.provider),
       authTypes: providerAuthTypes(supportsOAuth, supportsApiKey),
       supportsOAuth,
       supportsApiKey,
@@ -130,23 +119,17 @@ function providerResponse() {
     });
     providers.set(model.provider, current);
   }
-  for (const oauth of oauthProviders) {
-    const current = providers.get(oauth.id);
-    if (current) {
-      current.supportsOAuth = true;
-      current.authTypes = providerAuthTypes(
-        true,
-        Boolean(current.supportsApiKey),
-      );
-      continue;
-    }
-    providers.set(oauth.id, {
-      id: oauth.id,
-      name: oauth.name ?? oauth.id,
-      auth: auth.getAuthStatus(oauth.id),
-      authTypes: providerAuthTypes(true, false),
-      supportsOAuth: true,
-      supportsApiKey: false,
+  for (const runtimeProvider of runtimeProviders) {
+    if (providers.has(runtimeProvider.id)) continue;
+    const supportsOAuth = Boolean(runtimeProvider.auth.oauth);
+    const supportsApiKey = Boolean(runtimeProvider.auth.apiKey?.login);
+    providers.set(runtimeProvider.id, {
+      id: runtimeProvider.id,
+      name: runtimeProvider.name,
+      auth: modelRuntime.getProviderAuthStatus(runtimeProvider.id),
+      authTypes: providerAuthTypes(supportsOAuth, supportsApiKey),
+      supportsOAuth,
+      supportsApiKey,
       models: [],
     });
   }
