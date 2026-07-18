@@ -3,7 +3,9 @@ import { sessionCreationPayload } from "./sessionCreation";
 
 describe("fixed-workspace session creation", () => {
   it("leaves cwd selection to the authoritative server workspace", () => {
-    expect(sessionCreationPayload("ask")).toEqual({ permissionProfile: "ask" });
-    expect(sessionCreationPayload("ask")).not.toHaveProperty("cwd");
+    expect(sessionCreationPayload("full")).toEqual({
+      permissionProfile: "full",
+    });
+    expect(sessionCreationPayload("full")).not.toHaveProperty("cwd");
   });
 });

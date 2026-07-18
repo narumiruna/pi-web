@@ -20,7 +20,7 @@ describe("fixed workspace UI", () => {
         onNewSession: noop,
         creatingSession: false,
         onHide: noop,
-        permissionProfile: "ask",
+        permissionProfile: "full",
         onPermissionProfile: noop,
         onSelectSession: noop,
         onSelectSearchResult: noop,

@@ -576,11 +576,9 @@ export async function restoreInstructionFile(cwd: string, requested: string) {
   return readInstructionFile(cwd, requested);
 }
 
-export type PermissionProfile = "safe" | "ask" | "full";
+export type PermissionProfile = "safe" | "full";
 export function resolvePermissionProfile(value?: string): PermissionProfile {
-  return value === "safe" || value === "ask" || value === "full"
-    ? value
-    : "ask";
+  return value === "safe" || value === "full" ? value : "full";
 }
 export function toolsForPermissionProfile(profile?: string, tools?: string[]) {
   const resolved = resolvePermissionProfile(profile);
@@ -592,8 +590,8 @@ export async function permissionSettings(profile?: string) {
   const path = join(productDataDir(), "permissions.json");
   if (profile)
     await writeJson(path, { profile: resolvePermissionProfile(profile) });
-  const current = await readJson<{ profile?: PermissionProfile }>(path, {
-    profile: "ask",
+  const current = await readJson<{ profile?: string }>(path, {
+    profile: "full",
   });
   return {
     profile: resolvePermissionProfile(current.profile),

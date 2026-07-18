@@ -89,7 +89,7 @@ function App() {
   const [commands, setCommands] = useState<any[]>([]);
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<AppTab>("chat");
-  const [permissionProfile, setPermissionProfile] = useState("ask");
+  const [permissionProfile, setPermissionProfile] = useState("full");
   const [creatingSession, setCreatingSession] = useState(false);
   const [usageHistory, setUsageHistory] = useState<UsageSnapshot[]>([]);
   const [lastValidation, setLastValidation] =

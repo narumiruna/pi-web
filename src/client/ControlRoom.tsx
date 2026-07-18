@@ -816,7 +816,6 @@ export function ControlRoom({
                   }
                 >
                   <option value="safe">safe</option>
-                  <option value="ask">ask</option>
                   <option value="full">full</option>
                 </select>
               </div>
