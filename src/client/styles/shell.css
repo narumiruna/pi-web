@@ -1,0 +1,651 @@
+/* biome-ignore-all lint/style/noDescendingSpecificity: responsive state overrides intentionally follow base Radix component styles. */
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width, 310px) 6px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.app.sidebar-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app.sidebar-hidden .sidebar,
+.app.sidebar-hidden .sidebar-width-resizer {
+  display: none;
+}
+
+.sidebar {
+  display: flex;
+  width: var(--sidebar-width, 310px);
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--slate-2);
+}
+
+.sidebar-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.brand {
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 760;
+  letter-spacing: -0.04em;
+}
+
+.brand::first-letter {
+  color: var(--accent);
+}
+
+.sidebar-hide,
+.sidebar-toggle {
+  color: var(--muted);
+}
+
+.workspace-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.workspace-trigger {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  width: 100%;
+  min-height: 42px;
+  justify-content: initial;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 0;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+}
+
+.workspace-trigger small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-settings-body {
+  display: grid;
+  gap: 9px;
+  padding: 0 10px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.workspace-settings-body[data-state="closed"] {
+  display: none;
+}
+
+.workspace-input {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.layout-reset {
+  justify-self: start;
+}
+
+.new-session-button {
+  width: 100%;
+  min-height: 38px;
+}
+
+.sidebar-tabs {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.sidebar-tab-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  width: 100%;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: none;
+}
+
+.sidebar-tab-buttons::before {
+  display: none;
+}
+
+.sidebar-tab-buttons .rt-TabsTrigger {
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+}
+
+.sidebar-tab-buttons .rt-TabsTriggerInner {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-tab-buttons .rt-TabsTrigger::before {
+  inset: 0;
+  height: auto;
+  border-radius: inherit;
+  background: transparent;
+}
+
+.sidebar-tab-buttons .rt-TabsTrigger[data-state="active"] {
+  color: var(--accent);
+  background: var(--blue-3);
+  box-shadow: inset 0 0 0 1px var(--blue-7);
+}
+
+.auto-refresh {
+  color: var(--success);
+  font-family: var(--mono-font);
+  font-size: 10px;
+}
+
+.sidebar-tab-content,
+.sidebar-tab-panel {
+  min-height: 0;
+  flex: 1;
+}
+
+.sidebar-tab-content {
+  padding-top: 10px;
+}
+
+.sidebar-tab-panel {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-search {
+  flex: 0 0 auto;
+}
+
+.message-search {
+  flex: 0 0 auto;
+  margin-top: 7px;
+}
+
+.message-search-trigger {
+  min-height: 28px;
+  padding: 3px 5px;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.message-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.search-results {
+  max-height: 180px;
+  margin-top: 8px;
+  padding-bottom: 8px;
+  overflow: auto;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.session-list,
+.file-list {
+  min-height: 0;
+  flex: 1;
+  margin-top: 8px;
+}
+
+.session-list-content,
+.file-list-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 4px;
+}
+
+.session-row {
+  position: relative;
+  min-width: 0;
+  border-radius: var(--radius-md);
+}
+
+.session {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  justify-content: stretch;
+  gap: 3px;
+  padding: 9px 38px 9px 10px;
+  overflow: hidden;
+  border-color: transparent;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  box-shadow: none;
+}
+
+.session:hover,
+.file-row:hover {
+  border-color: var(--blue-6);
+  background: var(--blue-2);
+}
+
+.session.active {
+  border-color: var(--blue-7);
+  background: var(--blue-3);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.session-heading,
+.session-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.session-heading > span:first-child,
+.session-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-heading > span:first-child {
+  flex: 1;
+  font-weight: 650;
+}
+
+.session-heading em {
+  color: var(--accent);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.session-meta {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.session-delete {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.session-row:hover .session-delete,
+.session-delete:focus-visible {
+  opacity: 1;
+}
+
+.show-all-sessions {
+  width: 100%;
+  color: var(--accent);
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.file-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-path {
+  margin-top: 8px;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  overflow: hidden;
+  border-color: transparent;
+  color: var(--text);
+  background: transparent;
+  box-shadow: none;
+}
+
+.file-row.active {
+  border-color: var(--blue-7);
+  background: var(--blue-3);
+}
+
+.file-row-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.file-row.directory .file-row-icon {
+  color: var(--accent);
+}
+
+.file-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-width-resizer {
+  position: relative;
+  width: 6px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: col-resize;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.sidebar-width-resizer::before {
+  position: absolute;
+  inset: 16px 2px;
+  border-radius: 99px;
+  background: var(--border-soft);
+  content: "";
+}
+
+.sidebar-width-resizer:hover::before {
+  background: var(--accent);
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+.main {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.topbar {
+  z-index: 10;
+  display: flex;
+  min-height: 54px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.topbar-main,
+.tabs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.tabs {
+  padding: 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--slate-3);
+}
+
+.tabs .rt-TabsList {
+  box-shadow: none;
+}
+
+.tabs .rt-TabsList::before {
+  display: none;
+}
+
+.tabs .rt-TabsTrigger,
+.tabs > .rt-DropdownMenuTrigger > .rt-Button,
+.tabs > .rt-Button {
+  min-height: 31px;
+  padding: 5px 10px;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+}
+
+.tabs .rt-TabsTrigger::before {
+  display: none;
+}
+
+.tabs .rt-TabsTrigger[data-state="active"],
+.tabs .rt-Button.active {
+  color: var(--accent);
+  background: var(--panel);
+  box-shadow:
+    inset 0 0 0 1px var(--blue-7),
+    var(--shadow-1);
+}
+
+.more-tabs-menu {
+  min-width: 210px;
+}
+
+.more-tabs-menu .active {
+  color: var(--accent);
+  background: var(--blue-3);
+}
+
+.statusline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.notice {
+  position: absolute;
+  z-index: 25;
+  top: 66px;
+  right: 14px;
+  display: flex;
+  width: min(560px, calc(100% - 28px));
+  align-items: center;
+  box-shadow: var(--shadow-card);
+}
+
+.notice .rt-CalloutText {
+  min-width: 0;
+  flex: 1;
+  font-weight: 600;
+}
+
+.help-modal {
+  display: grid;
+  gap: 14px;
+}
+
+.help-modal .rt-DialogTitle,
+.help-modal .rt-DialogDescription {
+  margin: 0;
+}
+
+.shortcut-list {
+  display: grid;
+  max-height: min(55vh, 480px);
+  gap: 2px;
+  margin: 0;
+  overflow: auto;
+}
+
+.shortcut-list > div {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr;
+  gap: 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.shortcut-list dt {
+  font-family: var(--mono-font);
+  font-weight: 700;
+}
+
+.shortcut-list dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.delete-dialog {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+}
+
+.delete-dialog-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--danger);
+  background: var(--red-3);
+}
+
+.delete-dialog .rt-AlertDialogTitle {
+  margin: 4px 0;
+}
+
+.delete-dialog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-family: var(--mono-font);
+  font-size: 11px;
+}
+
+.delete-dialog-actions {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 860px) {
+  .app,
+  .app.sidebar-hidden {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar,
+  .sidebar-width-resizer {
+    display: none;
+  }
+
+  .app:not(.sidebar-hidden) .sidebar {
+    position: fixed;
+    z-index: 31;
+    inset: 0 auto 0 0;
+    display: flex;
+    width: min(88vw, 350px);
+    max-width: none;
+    box-shadow: var(--shadow-6);
+  }
+
+  .app:not(.sidebar-hidden) .sidebar-backdrop {
+    position: fixed;
+    z-index: 30;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--black-a6);
+  }
+
+  .topbar {
+    padding-inline: 8px;
+  }
+
+  .tabs {
+    max-width: calc(100vw - 20px);
+  }
+
+  .statusline {
+    display: none;
+  }
+
+  .notice {
+    top: 62px;
+    right: 8px;
+    width: calc(100% - 16px);
+  }
+}
+
+@media (max-width: 540px) {
+  .tabs .rt-TabsTrigger,
+  .tabs .rt-Button {
+    padding-inline: 8px;
+  }
+
+  .tabs .rt-TabsTrigger svg + *,
+  .sidebar-toggle:not(:focus-visible) {
+    font-size: 0;
+  }
+
+  .notice {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

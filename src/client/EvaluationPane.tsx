@@ -1,5 +1,7 @@
+import { Checkbox } from "@radix-ui/themes";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { Button } from "./ui";
 
 type GoldenTask = { file: string; title: string };
 type EvaluationResult = {
@@ -73,11 +75,11 @@ export function EvaluationPane({
               send the prompt to a fresh session and record tokens/cost.
             </p>
           </div>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
+          <label className="checkbox-row" htmlFor="agent-evaluation-mode">
+            <Checkbox
+              id="agent-evaluation-mode"
               checked={agentMode}
-              onChange={(event) => setAgentMode(event.target.checked)}
+              onCheckedChange={(checked) => setAgentMode(checked === true)}
             />
             Run with agent (slower, costs tokens)
           </label>
@@ -87,13 +89,13 @@ export function EvaluationPane({
             <div className="compact-row" key={task.file}>
               <strong>{task.title}</strong>
               <span>{task.file}</span>
-              <button
+              <Button
                 type="button"
                 disabled={Boolean(runningFile)}
                 onClick={() => void run(task.file)}
               >
                 {runningFile === task.file ? "Running…" : "Run"}
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -114,21 +116,21 @@ export function EvaluationPane({
                 {result.review ? ` · ${result.review}` : ""}
               </span>
               <div className="row-actions">
-                <button
+                <Button
                   type="button"
                   disabled={result.review === "accepted"}
                   onClick={() => void review(result.id, "accepted")}
                 >
                   Accept
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   disabled={result.review === "rejected"}
                   onClick={() => void review(result.id, "rejected")}
                 >
                   Reject
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   onClick={() =>
                     navigator.clipboard.writeText(
@@ -137,7 +139,7 @@ export function EvaluationPane({
                   }
                 >
                   Export JSON
-                </button>
+                </Button>
               </div>
             </div>
           ))}

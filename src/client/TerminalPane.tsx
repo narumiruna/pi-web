@@ -1,4 +1,6 @@
 // biome-ignore-all lint: terminal focus and websocket wire data are intentionally small here.
+import { CodeIcon, PaperPlaneIcon } from "@radix-ui/react-icons";
+import { Popover } from "@radix-ui/themes";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -10,6 +12,7 @@ import {
   parseSnippets,
   trimTerminalBuffer,
 } from "./terminalHelpers";
+import { Button, TextInput } from "./ui";
 
 const SNIPPETS_KEY = "pi-web.terminal-snippets";
 
@@ -195,53 +198,54 @@ export function TerminalPane({
             <span className="status-dot ok" aria-hidden="true" />
             connected
           </div>
-          <button
+          <Button
             type="button"
             title="Send recent output to chat · Ctrl/⌘ Shift L"
             onClick={() => sendToChat(80)}
           >
+            <PaperPlaneIcon />
             Send recent output
-          </button>
-          <button type="button" onClick={sendSelectionToChat}>
+          </Button>
+          <Button type="button" onClick={sendSelectionToChat}>
+            <PaperPlaneIcon />
             Send selection
-          </button>
-          <details
-            className="terminal-snippets"
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              event.currentTarget.open = false;
-              event.currentTarget
-                .querySelector<HTMLElement>("summary")
-                ?.focus();
-            }}
-          >
-            <summary>
-              Snippets{snippets.length ? ` · ${snippets.length}` : ""}
-            </summary>
-            <div className="terminal-snippets-menu">
+          </Button>
+          <Popover.Root>
+            <Popover.Trigger>
+              <Button type="button" className="terminal-snippets-trigger">
+                <CodeIcon />
+                Snippets{snippets.length ? ` · ${snippets.length}` : ""}
+              </Button>
+            </Popover.Trigger>
+            <Popover.Content
+              className="terminal-snippets-menu"
+              align="end"
+              sideOffset={8}
+            >
               <div className="terminal-snippet-form">
-                <label>
+                <div className="terminal-snippet-field">
                   <span>Name</span>
-                  <input
+                  <TextInput
                     className="input"
+                    aria-label="Snippet name"
                     value={snippetName}
                     onChange={(event) => setSnippetName(event.target.value)}
                     placeholder="e.g. test"
                   />
-                </label>
-                <label>
+                </div>
+                <div className="terminal-snippet-field">
                   <span>Command</span>
-                  <input
+                  <TextInput
                     className="input"
+                    aria-label="Snippet command"
                     value={snippetCommand}
                     onChange={(event) => setSnippetCommand(event.target.value)}
                     placeholder="npm test"
                   />
-                </label>
-                <button type="button" onClick={rememberSnippet}>
+                </div>
+                <Button type="button" onClick={rememberSnippet}>
                   Save snippet
-                </button>
+                </Button>
               </div>
               {snippets.length > 0 && (
                 <div
@@ -249,7 +253,7 @@ export function TerminalPane({
                   aria-label="Saved snippets"
                 >
                   {snippets.map((snippet) => (
-                    <button
+                    <Button
                       type="button"
                       key={snippet.name}
                       title={snippet.command}
@@ -257,12 +261,12 @@ export function TerminalPane({
                     >
                       <span>{snippet.name}</span>
                       <code>{snippet.command}</code>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               )}
-            </div>
-          </details>
+            </Popover.Content>
+          </Popover.Root>
         </div>
       </header>
       <div className="terminal-frame">

@@ -1,6 +1,9 @@
+import { ChevronDownIcon } from "@radix-ui/react-icons";
+import { Collapsible } from "radix-ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { splitPatchIntoHunks } from "./diffHunks";
+import { Button } from "./ui";
 
 type DiffFile = { status: string; path: string };
 type GitDiff = {
@@ -115,12 +118,12 @@ export function DiffPane({
             </p>
           </div>
           <div className="hero-actions">
-            <button type="button" onClick={() => void refresh()}>
+            <Button type="button" onClick={() => void refresh()}>
               Refresh
-            </button>
-            <button type="button" onClick={() => void checkpoint()}>
+            </Button>
+            <Button type="button" onClick={() => void checkpoint()}>
               Checkpoint
-            </button>
+            </Button>
           </div>
         </div>
         <div className="compact-list">
@@ -133,42 +136,51 @@ export function DiffPane({
                 </strong>
                 <span>{reviewed.has(file.path) ? "reviewed" : "pending"}</span>
                 <div className="row-actions">
-                  <button
+                  <Button
                     type="button"
                     onClick={() =>
                       setReviewed(new Set(reviewed).add(file.path))
                     }
                   >
                     Accept
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     className="danger"
                     onClick={() => void revert(file.path)}
                   >
                     Revert
-                  </button>
+                  </Button>
                 </div>
                 {hunks.length > 0 && (
-                  <details className="hunk-list">
-                    <summary>
-                      {hunks.length} hunk{hunks.length === 1 ? "" : "s"}
-                    </summary>
-                    {hunks.map((hunk) => (
-                      <div className="hunk-row" key={hunk.header + hunk.path}>
-                        <pre>{hunk.patch}</pre>
-                        <button
-                          type="button"
-                          className="danger"
-                          onClick={() =>
-                            void revertHunk(hunk.path, hunk.header, hunk.patch)
-                          }
-                        >
-                          Revert hunk
-                        </button>
-                      </div>
-                    ))}
-                  </details>
+                  <Collapsible.Root className="hunk-list">
+                    <Collapsible.Trigger asChild>
+                      <Button type="button" className="disclosure-trigger">
+                        {hunks.length} hunk{hunks.length === 1 ? "" : "s"}
+                        <ChevronDownIcon className="disclosure-chevron" />
+                      </Button>
+                    </Collapsible.Trigger>
+                    <Collapsible.Content>
+                      {hunks.map((hunk) => (
+                        <div className="hunk-row" key={hunk.header + hunk.path}>
+                          <pre>{hunk.patch}</pre>
+                          <Button
+                            type="button"
+                            className="danger"
+                            onClick={() =>
+                              void revertHunk(
+                                hunk.path,
+                                hunk.header,
+                                hunk.patch,
+                              )
+                            }
+                          >
+                            Revert hunk
+                          </Button>
+                        </div>
+                      ))}
+                    </Collapsible.Content>
+                  </Collapsible.Root>
                 )}
               </div>
             );
@@ -185,13 +197,13 @@ export function DiffPane({
             <div className="compact-row" key={item.id}>
               <strong>{new Date(item.created).toLocaleString()}</strong>
               <span>{item.id}</span>
-              <button
+              <Button
                 type="button"
                 className="danger"
                 onClick={() => void rewind(item.id)}
               >
                 Rewind
-              </button>
+              </Button>
             </div>
           ))}
           {checkpoints.length === 0 && (

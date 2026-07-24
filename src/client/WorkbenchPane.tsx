@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { COMPOSER_DRAFT_EVENT } from "./composerIntents";
 import type { SessionInfo } from "./types";
+import { Button, TextInput } from "./ui";
 
 type Task = {
   id: string;
@@ -126,35 +127,37 @@ export function WorkbenchPane({
           </div>
         </div>
         <div className="hero-actions">
-          <input
+          <TextInput
             className="input"
+            aria-label="Task title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Task title"
           />
-          <button type="button" onClick={() => void save({ status: "todo" })}>
+          <Button type="button" onClick={() => void save({ status: "todo" })}>
             Add task
-          </button>
-          <input
+          </Button>
+          <TextInput
             className="input"
+            aria-label="GitHub issue"
             value={issue}
             onChange={(event) => setIssue(event.target.value)}
             placeholder="GitHub issue URL or #"
           />
-          <button type="button" onClick={() => void importIssue()}>
+          <Button type="button" onClick={() => void importIssue()}>
             Import issue
-          </button>
-          <button type="button" onClick={() => void createPr()}>
+          </Button>
+          <Button type="button" onClick={() => void createPr()}>
             Create draft PR
-          </button>
+          </Button>
           {isWorktreePath(cwd) && (
-            <button
+            <Button
               type="button"
               className="danger"
               onClick={() => void removeCurrentWorktree()}
             >
               Remove worktree
-            </button>
+            </Button>
           )}
         </div>
       </section>
@@ -182,31 +185,31 @@ export function WorkbenchPane({
                   )}
                   {status === "review" && (
                     <div className="row-actions">
-                      <button type="button" onClick={onOpenDiff}>
+                      <Button type="button" onClick={onOpenDiff}>
                         Diff & checkpoints
-                      </button>
-                      <button type="button" onClick={onOpenValidation}>
+                      </Button>
+                      <Button type="button" onClick={onOpenValidation}>
                         Validation
-                      </button>
+                      </Button>
                     </div>
                   )}
                   <div className="row-actions">
                     {STATUSES.map(
                       (next) =>
                         next !== status && (
-                          <button
+                          <Button
                             type="button"
                             key={next}
                             onClick={() => void save({ ...task, status: next })}
                           >
                             {next}
-                          </button>
+                          </Button>
                         ),
                     )}
                   </div>
                 </article>
               ))}
-            <button
+            <Button
               type="button"
               className="drop-zone"
               onDragOver={(event) => event.preventDefault()}
@@ -218,7 +221,7 @@ export function WorkbenchPane({
               }
             >
               Drop here
-            </button>
+            </Button>
           </section>
         ))}
       </div>

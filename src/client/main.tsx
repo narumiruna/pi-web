@@ -1,7 +1,10 @@
 // biome-ignore-all lint: Pi SDK/websocket wire data is dynamic in this MVP.
+import { Theme as RadixTheme } from "@radix-ui/themes";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppNavigation, type AppTab } from "./AppNavigation";
+import { AppNotice } from "./AppNotice";
+import { AppOverlays } from "./AppOverlays";
 import type { ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
 import {
@@ -28,6 +31,12 @@ import { Sidebar } from "./Sidebar";
 import { sessionCreationPayload } from "./sessionCreation";
 import { shortcutAction, shortcutHelp } from "./shortcuts";
 import { TerminalPane } from "./TerminalPane";
+import {
+  parseTheme,
+  radixThemeProps,
+  resolveTheme,
+  THEME_STORAGE_KEY,
+} from "./theme";
 import type {
   AttachedImage,
   FileEntry,
@@ -40,36 +49,26 @@ import { noticeTone, sessionTitle } from "./uiText";
 import { type UsageSnapshot, usageFromStatus } from "./usage";
 import { ValidationPanel } from "./ValidationPanel";
 import { WorkbenchPane } from "./WorkbenchPane";
+import "@radix-ui/themes/styles.css";
 import "./styles.css";
 
-const THEME_STORAGE_KEY = "pi-web.theme";
 const FILE_REFRESH_DEBOUNCE_MS = 150;
 
 function loadTheme(): Theme {
-  const value = localStorage.getItem(THEME_STORAGE_KEY);
-  return value === "dark" || value === "light" || value === "system"
-    ? value
-    : "light";
+  return parseTheme(localStorage.getItem(THEME_STORAGE_KEY));
 }
 
 function resolvedTheme(theme: Theme): Exclude<Theme, "system"> {
-  if (theme !== "system") return theme;
-  return window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
+  return resolveTheme(
+    theme,
+    window.matchMedia("(prefers-color-scheme: light)").matches,
+  );
 }
 
 function applyTheme(theme: Theme) {
   const next = resolvedTheme(theme);
   document.documentElement.dataset.theme = next;
   document.documentElement.style.colorScheme = next;
-}
-
-function noticeIcon(tone: ReturnType<typeof noticeTone>) {
-  if (tone === "warning") return "⚠";
-  if (tone === "danger") return "!";
-  if (tone === "ok") return "✓";
-  return "•";
 }
 
 function App() {
@@ -100,7 +99,6 @@ function App() {
   );
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpQuery, setHelpQuery] = useState("");
-  const helpReturnFocus = useRef<HTMLElement | null>(null);
   const [theme, setThemeState] = useState<Theme>(() => loadTheme());
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [filePath, setFilePath] = useState("");
@@ -329,16 +327,6 @@ function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
-
-  useEffect(() => {
-    if (helpOpen) {
-      helpReturnFocus.current = document.activeElement as HTMLElement | null;
-      return;
-    }
-    setHelpQuery("");
-    helpReturnFocus.current?.focus?.();
-    helpReturnFocus.current = null;
-  }, [helpOpen]);
 
   useEffect(() => {
     const enqueue = (event: Event) => {
@@ -629,287 +617,189 @@ function App() {
   const currentNoticeTone = notice ? noticeTone(notice) : "info";
 
   return (
-    <div className={`app ${sidebarHidden ? "sidebar-hidden" : ""}`}>
-      <Sidebar
-        cwd={cwd}
-        sessions={sessions}
-        selected={selected}
-        deletingSessionId={deletingSessionId}
-        files={files}
-        filePath={filePath}
-        activeFilePath={file?.path ?? ""}
-        onNewSession={() =>
-          void newSession().catch((error) =>
-            setNotice(error instanceof Error ? error.message : String(error)),
-          )
-        }
-        creatingSession={creatingSession}
-        onHide={() => setSidebarHidden(true)}
-        permissionProfile={permissionProfile}
-        onPermissionProfile={(profile) => {
-          setPermissionProfile(profile);
-          void api("/api/permissions", {
-            method: "POST",
-            body: JSON.stringify({ profile }),
-          });
-        }}
-        onSelectSession={(session) => {
-          resetSessionView();
-          selectedRef.current = session;
-          setSelected(session);
-          if (isMobileLayout(window.innerWidth)) setSidebarHidden(true);
-        }}
-        onSelectSearchResult={(session, messageIndex) => {
-          resetSessionView();
-          selectedRef.current = session;
-          setSelected(session);
-          setLocateMessage(messageIndex);
-          if (isMobileLayout(window.innerWidth)) setSidebarHidden(true);
-        }}
-        onDeleteSession={requestSessionDelete}
-        onFilePath={setFilePath}
-        onOpenFile={(entry) => {
-          void openFile(entry);
-          if (entry.type === "file" && isMobileLayout(window.innerWidth))
-            setSidebarHidden(true);
-        }}
-      />
-
-      <main className="main">
-        <AppNavigation
-          tab={tab}
-          running={running}
-          sidebarHidden={sidebarHidden}
-          hasFile={Boolean(file)}
-          onTab={setTab}
-          onToggleSidebar={() => setSidebarHidden((value) => !value)}
+    <RadixTheme {...radixThemeProps(resolvedTheme(theme))}>
+      <div className={`app ${sidebarHidden ? "sidebar-hidden" : ""}`}>
+        <Sidebar
+          cwd={cwd}
+          sessions={sessions}
+          selected={selected}
+          deletingSessionId={deletingSessionId}
+          files={files}
+          filePath={filePath}
+          activeFilePath={file?.path ?? ""}
+          onNewSession={() =>
+            void newSession().catch((error) =>
+              setNotice(error instanceof Error ? error.message : String(error)),
+            )
+          }
+          creatingSession={creatingSession}
+          onHide={() => setSidebarHidden(true)}
+          permissionProfile={permissionProfile}
+          onPermissionProfile={(profile) => {
+            setPermissionProfile(profile);
+            void api("/api/permissions", {
+              method: "POST",
+              body: JSON.stringify({ profile }),
+            });
+          }}
+          onSelectSession={(session) => {
+            resetSessionView();
+            selectedRef.current = session;
+            setSelected(session);
+            if (isMobileLayout(window.innerWidth)) setSidebarHidden(true);
+          }}
+          onSelectSearchResult={(session, messageIndex) => {
+            resetSessionView();
+            selectedRef.current = session;
+            setSelected(session);
+            setLocateMessage(messageIndex);
+            if (isMobileLayout(window.innerWidth)) setSidebarHidden(true);
+          }}
+          onDeleteSession={requestSessionDelete}
+          onFilePath={setFilePath}
+          onOpenFile={(entry) => {
+            void openFile(entry);
+            if (entry.type === "file" && isMobileLayout(window.innerWidth))
+              setSidebarHidden(true);
+          }}
         />
-        {notice && (
-          <div
-            className={`notice ${currentNoticeTone}`}
-            role={currentNoticeTone === "danger" ? "alert" : "status"}
-          >
-            <span className="notice-icon" aria-hidden="true">
-              {noticeIcon(currentNoticeTone)}
-            </span>
-            <strong>{notice}</strong>
-            {notice.includes("Diagnostics") && (
-              <button
-                type="button"
-                onClick={() => {
-                  setTab("settings");
-                  setNotice("");
-                }}
-              >
-                Open diagnostics
-              </button>
-            )}
-            <button type="button" onClick={() => setNotice("")}>
-              Dismiss
-            </button>
-          </div>
-        )}
-        {tab === "chat" && (
-          <ChatPane
-            messages={messages}
-            streamText={streamText}
-            streamThinking={streamThinking}
+
+        <main className="main">
+          <AppNavigation
+            tab={tab}
             running={running}
-            hasSession={Boolean(selected)}
-            sessionId={selectedId}
-            cwd={activeCwd}
-            onOpenDiff={() => setTab("diff")}
-            onOpenValidation={() => setTab("validation")}
-            onSend={sendPrompt}
-            onAbort={abortAgent}
-            lastValidation={lastValidation}
-            locateMessage={locateMessage}
-            onLocated={() => setLocateMessage(null)}
-            onCompact={async () =>
-              selectedId &&
-              api(`/api/sessions/${selectedId}/compact`, {
-                method: "POST",
-                body: "{}",
-              }).then(() => loadMessages(selectedId))
-            }
-            status={status}
-            models={models}
-            onModel={setModel}
-            onThinking={setThinking}
-            tools={tools}
-            onTools={saveTools}
-            commands={commands}
-            composerIntents={composerIntents}
-            onComposerIntentsConsumed={consumeComposerIntents}
+            sidebarHidden={sidebarHidden}
+            hasFile={Boolean(file)}
+            onTab={setTab}
+            onToggleSidebar={() => setSidebarHidden((value) => !value)}
           />
-        )}
-        {tab === "terminal" && (
-          <TerminalPane cwd={activeCwd} theme={resolvedTheme(theme)} />
-        )}
-        {tab === "diff" && (
-          <DiffPane
-            cwd={activeCwd}
-            sessionId={selectedId}
-            onNotice={setNotice}
-          />
-        )}
-        {tab === "validation" && (
-          <ValidationPanel
-            cwd={activeCwd}
-            onNotice={setNotice}
-            onResult={setLastValidation}
-          />
-        )}
-        {tab === "preview" && <PreviewPane onNotice={setNotice} />}
-        {tab === "workbench" && (
-          <WorkbenchPane
-            cwd={activeCwd}
-            sessionId={selectedId}
-            sessions={sessions}
-            onNotice={setNotice}
-            onOpenDiff={() => setTab("diff")}
-            onOpenValidation={() => setTab("validation")}
-          />
-        )}
-        {tab === "evaluation" && <EvaluationPane onNotice={setNotice} />}
-        {tab === "replay" && <ReplayPane />}
-        {tab === "settings" && (
-          <ControlRoom
-            cwd={activeCwd}
-            selected={selected}
-            status={status}
-            models={models}
-            tools={tools}
-            usageHistory={usageHistory}
-            permissionProfile={permissionProfile}
-            onPermissionProfile={setPermissionProfile}
-            theme={theme}
-            onTheme={setTheme}
-            onModel={setModel}
-            onTools={saveTools}
-            onDeleteSession={requestSessionDelete}
-            onNotice={setNotice}
-            onSessionsChanged={async () => {
-              eventsRef.current?.close();
-              eventsRef.current = null;
-              selectedRef.current = null;
-              setSelected(null);
-              resetSessionView();
-              await loadSessions();
-            }}
-            onAuthChanged={loadModels}
-            onRulesSaved={async () => {
-              await loadCommands(selectedId);
-              await loadTools(selectedId);
-            }}
-          />
-        )}
-        {tab === "file" && <FilePane file={file} />}
-      </main>
-      {helpOpen && (
-        <section
-          className="help-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Keyboard shortcuts"
-        >
-          <h2>Keyboard shortcuts</h2>
-          <input
-            className="input"
-            value={helpQuery}
-            onChange={(event) => setHelpQuery(event.target.value)}
-            placeholder="Search shortcuts and commands"
-          />
-          <dl>
-            {shortcutHelp
-              .filter(
-                ([keys, label]) =>
-                  !helpQuery.trim() ||
-                  `${keys} ${label}`
-                    .toLowerCase()
-                    .includes(helpQuery.trim().toLowerCase()),
-              )
-              .map(([keys, label]) => (
-                <div key={keys}>
-                  <dt>{keys}</dt>
-                  <dd>{label}</dd>
-                </div>
-              ))}
-            {commands
-              .filter(
-                (cmd) =>
-                  helpQuery.trim() &&
-                  String(cmd.name ?? "")
-                    .toLowerCase()
-                    .includes(helpQuery.trim().toLowerCase()),
-              )
-              .slice(0, 8)
-              .map((cmd) => (
-                <div key={`cmd-${cmd.name}`}>
-                  <dt>/{cmd.name}</dt>
-                  <dd>{cmd.description || "Chat command"}</dd>
-                </div>
-              ))}
-          </dl>
-          <button type="button" onClick={() => setHelpOpen(false)}>
-            Close
-          </button>
-        </section>
-      )}
-      {deleteTarget && (
-        <div className="delete-dialog-backdrop">
-          <button
-            type="button"
-            className="delete-dialog-scrim"
-            aria-label="Cancel delete"
-            onClick={() => {
-              if (deletingSessionId !== deleteTarget.id) setDeleteTarget(null);
-            }}
-          />
-          <section
-            className="delete-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-session-title"
-          >
-            <div className="delete-dialog-icon" aria-hidden="true">
-              ×
-            </div>
-            <div>
-              <div className="panel-title">Delete chat</div>
-              <h2 id="delete-session-title">{sessionTitle(deleteTarget)}</h2>
-              <p>
-                This removes the chat transcript file. The workspace files stay
-                untouched.
-              </p>
-              <div className="delete-dialog-meta">
-                <span>{deleteTarget.cwd}</span>
-                <span>{deleteTarget.messageCount} msgs</span>
-              </div>
-            </div>
-            <div className="delete-dialog-actions">
-              <button
-                type="button"
-                disabled={deletingSessionId === deleteTarget.id}
-                onClick={() => setDeleteTarget(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="danger"
-                disabled={deletingSessionId === deleteTarget.id}
-                onClick={() => void confirmSessionDelete()}
-              >
-                {deletingSessionId === deleteTarget.id
-                  ? "Deleting…"
-                  : "Delete chat"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-    </div>
+          {notice && (
+            <AppNotice
+              message={notice}
+              tone={currentNoticeTone}
+              onDismiss={() => setNotice("")}
+              onOpenDiagnostics={() => {
+                setTab("settings");
+                setNotice("");
+              }}
+            />
+          )}
+          {tab === "chat" && (
+            <ChatPane
+              messages={messages}
+              streamText={streamText}
+              streamThinking={streamThinking}
+              running={running}
+              hasSession={Boolean(selected)}
+              sessionId={selectedId}
+              cwd={activeCwd}
+              onOpenDiff={() => setTab("diff")}
+              onOpenValidation={() => setTab("validation")}
+              onSend={sendPrompt}
+              onAbort={abortAgent}
+              lastValidation={lastValidation}
+              locateMessage={locateMessage}
+              onLocated={() => setLocateMessage(null)}
+              onCompact={async () =>
+                selectedId &&
+                api(`/api/sessions/${selectedId}/compact`, {
+                  method: "POST",
+                  body: "{}",
+                }).then(() => loadMessages(selectedId))
+              }
+              status={status}
+              models={models}
+              onModel={setModel}
+              onThinking={setThinking}
+              tools={tools}
+              onTools={saveTools}
+              commands={commands}
+              composerIntents={composerIntents}
+              onComposerIntentsConsumed={consumeComposerIntents}
+            />
+          )}
+          {tab === "terminal" && (
+            <TerminalPane cwd={activeCwd} theme={resolvedTheme(theme)} />
+          )}
+          {tab === "diff" && (
+            <DiffPane
+              cwd={activeCwd}
+              sessionId={selectedId}
+              onNotice={setNotice}
+            />
+          )}
+          {tab === "validation" && (
+            <ValidationPanel
+              cwd={activeCwd}
+              onNotice={setNotice}
+              onResult={setLastValidation}
+            />
+          )}
+          {tab === "preview" && <PreviewPane onNotice={setNotice} />}
+          {tab === "workbench" && (
+            <WorkbenchPane
+              cwd={activeCwd}
+              sessionId={selectedId}
+              sessions={sessions}
+              onNotice={setNotice}
+              onOpenDiff={() => setTab("diff")}
+              onOpenValidation={() => setTab("validation")}
+            />
+          )}
+          {tab === "evaluation" && <EvaluationPane onNotice={setNotice} />}
+          {tab === "replay" && <ReplayPane />}
+          {tab === "settings" && (
+            <ControlRoom
+              cwd={activeCwd}
+              selected={selected}
+              status={status}
+              models={models}
+              tools={tools}
+              usageHistory={usageHistory}
+              permissionProfile={permissionProfile}
+              onPermissionProfile={setPermissionProfile}
+              theme={theme}
+              onTheme={setTheme}
+              onModel={setModel}
+              onTools={saveTools}
+              onDeleteSession={requestSessionDelete}
+              onNotice={setNotice}
+              onSessionsChanged={async () => {
+                eventsRef.current?.close();
+                eventsRef.current = null;
+                selectedRef.current = null;
+                setSelected(null);
+                resetSessionView();
+                await loadSessions();
+              }}
+              onAuthChanged={loadModels}
+              onRulesSaved={async () => {
+                await loadCommands(selectedId);
+                await loadTools(selectedId);
+              }}
+            />
+          )}
+          {tab === "file" && <FilePane file={file} />}
+        </main>
+        <AppOverlays
+          helpOpen={helpOpen}
+          helpQuery={helpQuery}
+          commands={commands}
+          shortcutHelp={shortcutHelp}
+          deleteTarget={deleteTarget}
+          deletingSessionId={deletingSessionId}
+          onHelpOpen={(open) => {
+            setHelpOpen(open);
+            if (!open) setHelpQuery("");
+          }}
+          onHelpQuery={setHelpQuery}
+          onDeleteOpen={(open) => {
+            if (!open && !deletingSessionId) setDeleteTarget(null);
+          }}
+          onConfirmDelete={() => void confirmSessionDelete()}
+        />
+      </div>
+    </RadixTheme>
   );
 }
 

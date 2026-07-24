@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createAttachmentId } from "./attachmentIds";
 import { COMPOSER_ATTACH_IMAGE_EVENT } from "./composerIntents";
 import { previewUrlAllowed } from "./previewUrl";
+import { Button, TextInput } from "./ui";
 
 function attachImage(image: {
   id: string;
@@ -65,23 +66,24 @@ export function PreviewPane({
             <p>Localhost loads directly; external URLs ask first.</p>
           </div>
           <div className="hero-actions">
-            <input
+            <TextInput
               className="input"
+              aria-label="Preview URL"
               value={input}
               onChange={(event) => setInput(event.target.value)}
             />
-            <button type="button" onClick={open}>
+            <Button type="button" onClick={open}>
               Load
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
             >
               Open external
-            </button>
-            <button type="button" onClick={() => void screenshot()}>
+            </Button>
+            <Button type="button" onClick={() => void screenshot()}>
               Attach screenshot
-            </button>
+            </Button>
           </div>
         </div>
       </section>

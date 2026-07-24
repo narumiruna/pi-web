@@ -1,4 +1,5 @@
 import type { Theme } from "./types";
+import { Button, SelectField, TextArea } from "./ui";
 import type { UsageSnapshot } from "./usage";
 
 export type JsonObject = Record<string, unknown>;
@@ -148,9 +149,9 @@ export function DiagnosticsSection({
             Failures sort to the top.
           </p>
         </div>
-        <button type="button" onClick={onRefresh}>
+        <Button type="button" onClick={onRefresh}>
           Refresh
-        </button>
+        </Button>
       </div>
       <div className="compact-list">
         {items.map((item) => (
@@ -210,12 +211,12 @@ export function RulesSection({
                 {warnings.length > 0 && ` · ${warnings.join("; ")}`}
               </span>
               <div className="row-actions">
-                <button type="button" onClick={() => onEdit(path)}>
+                <Button type="button" onClick={() => onEdit(path)}>
                   Edit
-                </button>
-                <button type="button" onClick={() => onRestore(path)}>
+                </Button>
+                <Button type="button" onClick={() => onRestore(path)}>
                   Restore backup
-                </button>
+                </Button>
               </div>
             </div>
           );
@@ -224,18 +225,19 @@ export function RulesSection({
       {editingPath && (
         <div className="rules-editor">
           <div className="panel-title">Editing {editingPath}</div>
-          <textarea
+          <TextArea
             value={editingContent}
             rows={16}
+            aria-label={`Edit ${editingPath}`}
             onChange={(event) => onChangeContent(event.target.value)}
           />
           <div className="row-actions">
-            <button type="button" className="primary" onClick={onSave}>
+            <Button type="button" className="primary" onClick={onSave}>
               Save
-            </button>
-            <button type="button" onClick={onCancel}>
+            </Button>
+            <Button type="button" onClick={onCancel}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -273,12 +275,12 @@ export function McpSection({
           </p>
         </div>
         <div className="hero-actions">
-          <button type="button" onClick={onAdd}>
+          <Button type="button" onClick={onAdd}>
             Add stdio server
-          </button>
-          <button type="button" onClick={onRestoreBackup}>
+          </Button>
+          <Button type="button" onClick={onRestoreBackup}>
             Restore last backup
-          </button>
+          </Button>
         </div>
       </div>
       <div className="compact-list">
@@ -295,19 +297,19 @@ export function McpSection({
                 </span>
               </span>
               <div className="row-actions">
-                <button type="button" onClick={() => onToggle(name, server)}>
+                <Button type="button" onClick={() => onToggle(name, server)}>
                   {enabled ? "Disable" : "Enable"}
-                </button>
-                <button type="button" onClick={() => onTest(name, server)}>
+                </Button>
+                <Button type="button" onClick={() => onTest(name, server)}>
                   Test
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   className="danger"
                   onClick={() => onRemove(name)}
                 >
                   Remove
-                </button>
+                </Button>
               </div>
             </div>
           );
@@ -372,20 +374,19 @@ export function AppearanceSection({
           </h2>
           <p>{themeDetails[theme]}</p>
         </div>
-        <select
+        <SelectField
+          ariaLabel="Theme"
           value={theme}
-          onChange={(event) => {
-            const next = event.target.value as Theme;
+          onValueChange={(value) => {
+            const next = value as Theme;
             onTheme(next);
             onNotice(`Theme changed to ${themeNames[next]}`);
           }}
-        >
-          {themeOptions.map((option) => (
-            <option key={option} value={option}>
-              {themeNames[option]}
-            </option>
-          ))}
-        </select>
+          options={themeOptions.map((option) => ({
+            value: option,
+            label: themeNames[option],
+          }))}
+        />
       </div>
       <div className="summary-grid">
         {themeOptions.map((option) => (

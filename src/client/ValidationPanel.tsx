@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "./api";
 import { COMPOSER_DRAFT_EVENT } from "./composerIntents";
+import { Button } from "./ui";
 
 const COMMANDS = [
   "npm run lint",
@@ -61,7 +62,7 @@ export function ValidationPanel({
         </div>
         <div className="hero-actions">
           {COMMANDS.map((command) => (
-            <button
+            <Button
               type="button"
               key={command}
               disabled={Boolean(running)}
@@ -70,7 +71,7 @@ export function ValidationPanel({
               {running === command
                 ? "Running…"
                 : command.replace("npm run ", "")}
-            </button>
+            </Button>
           ))}
         </div>
       </section>
@@ -85,7 +86,7 @@ export function ValidationPanel({
               <p>{result.command}</p>
             </div>
             {!result.ok && (
-              <button
+              <Button
                 type="button"
                 onClick={() =>
                   draft(
@@ -94,7 +95,7 @@ export function ValidationPanel({
                 }
               >
                 Send failure to chat
-              </button>
+              </Button>
             )}
           </div>
           <pre className="diff-output">{result.output}</pre>

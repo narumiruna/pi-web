@@ -1,4 +1,17 @@
 // biome-ignore-all lint: Pi SDK wire data is dynamic in this MVP.
+import {
+  BookmarkFilledIcon,
+  BookmarkIcon,
+  CheckCircledIcon,
+  ChevronDownIcon,
+  CubeIcon,
+  GearIcon,
+  MixerHorizontalIcon,
+  StopIcon,
+} from "@radix-ui/react-icons";
+import { Checkbox, Popover, ScrollArea } from "@radix-ui/themes";
+import { Collapsible } from "radix-ui";
+import type { ReactNode } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildAgentTimeline, type ValidationSummary } from "./agentTimeline";
 import { api } from "./api";
@@ -6,6 +19,7 @@ import { ChatComposer, EmptyState } from "./ChatComposer";
 import { COMPOSER_DRAFT_EVENT, type ComposerIntent } from "./composerIntents";
 import { linkifyText } from "./textLinks";
 import type { AttachedImage, ModelInfo, ToolInfo } from "./types";
+import { Button, SelectField } from "./ui";
 import {
   nextStepFor,
   noticeTone,
@@ -33,6 +47,36 @@ function safeJson(value: unknown, space?: number) {
   } catch {
     return "";
   }
+}
+
+function Disclosure({
+  className,
+  open,
+  onOpenChange,
+  label,
+  children,
+}: {
+  className: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  label: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Collapsible.Root
+      className={className}
+      open={open}
+      onOpenChange={onOpenChange}
+    >
+      <Collapsible.Trigger asChild>
+        <Button type="button" className="disclosure-trigger">
+          <span>{label}</span>
+          <ChevronDownIcon className="disclosure-chevron" />
+        </Button>
+      </Collapsible.Trigger>
+      <Collapsible.Content>{children}</Collapsible.Content>
+    </Collapsible.Root>
+  );
 }
 
 export function messageKey(message: any, index = 0): string {
@@ -271,150 +315,153 @@ export function ChatPane(props: {
       {props.hasSession && (
         <div className="session-bar">
           <div className="session-context" title={props.cwd}>
+            <CubeIcon />
             <span>
               {props.cwd.split("/").filter(Boolean).pop() || "Workspace"}
             </span>
           </div>
-          <details
-            className="session-options"
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.currentTarget.open = false;
-              event.currentTarget
-                .querySelector<HTMLElement>("summary")
-                ?.focus();
-            }}
-          >
-            <summary>Session options</summary>
-            <div className="session-options-menu">
+          <Popover.Root>
+            <Popover.Trigger>
+              <Button type="button" className="session-options-trigger">
+                <GearIcon />
+                Session options
+                <ChevronDownIcon />
+              </Button>
+            </Popover.Trigger>
+            <Popover.Content
+              className="session-options-menu"
+              align="end"
+              sideOffset={8}
+            >
               <label>
                 <span>Model</span>
-                <select
-                  aria-label="Model"
+                <SelectField
+                  ariaLabel="Model"
                   disabled={props.models.length === 0}
                   value={
                     props.status?.model
                       ? `${props.status.model.provider}/${props.status.model.id}`
                       : ""
                   }
-                  onChange={(event) => void props.onModel(event.target.value)}
-                >
-                  <option value="">Automatic</option>
-                  {props.models.map((model) => (
-                    <option
-                      key={`${model.provider}/${model.id}`}
-                      value={`${model.provider}/${model.id}`}
-                    >
-                      {model.name || model.id} · {model.provider}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(value) => void props.onModel(value)}
+                  options={[
+                    { value: "", label: "Automatic" },
+                    ...props.models.map((model) => ({
+                      value: `${model.provider}/${model.id}`,
+                      label: `${model.name || model.id} · ${model.provider}`,
+                    })),
+                  ]}
+                />
               </label>
               <label>
                 <span>Reasoning</span>
-                <select
-                  aria-label="Reasoning"
+                <SelectField
+                  ariaLabel="Reasoning"
                   value={props.status?.thinkingLevel || "off"}
-                  onChange={(event) =>
-                    void props.onThinking(event.target.value)
-                  }
-                >
-                  {THINKING.map((level) => (
-                    <option key={level}>{level}</option>
-                  ))}
-                </select>
+                  onValueChange={(value) => void props.onThinking(value)}
+                  options={THINKING.map((level) => ({
+                    value: level,
+                    label: level,
+                  }))}
+                />
               </label>
               <div className="session-option-actions">
-                <button type="button" onClick={props.onOpenDiff}>
+                <Button type="button" onClick={props.onOpenDiff}>
                   Review changes
-                </button>
-                <button type="button" onClick={props.onOpenValidation}>
+                </Button>
+                <Button type="button" onClick={props.onOpenValidation}>
+                  <CheckCircledIcon />
                   Validate
-                </button>
-                <button type="button" onClick={() => void props.onCompact()}>
+                </Button>
+                <Button type="button" onClick={() => void props.onCompact()}>
                   Compact conversation
-                </button>
+                </Button>
                 {props.running && (
-                  <button
+                  <Button
                     type="button"
                     className="danger"
                     onClick={() => void props.onAbort()}
                   >
+                    <StopIcon />
                     Stop agent
-                  </button>
+                  </Button>
                 )}
               </div>
-              <details className="tools-menu">
-                <summary>
-                  Tools ({activeToolNames.length}/{props.tools.length})
-                </summary>
-                <div className="tools-list">
-                  {props.tools.map((tool) => {
-                    const active = activeToolNames.includes(tool.name);
-                    const risk = toolRiskLabel(tool.name);
-                    return (
-                      <label key={tool.name} title={tool.description}>
-                        <input
-                          type="checkbox"
-                          checked={active}
-                          onChange={(event) => {
-                            const next = new Set(activeToolNames);
-                            if (event.target.checked) next.add(tool.name);
-                            else next.delete(tool.name);
-                            void props.onTools([...next]);
-                          }}
-                        />
-                        <span>
-                          <strong>{tool.name}</strong>
-                          <span className="tool-description">
-                            {tool.description || "No description"}
-                          </span>
-                          <span className="tool-labels">
-                            <span
-                              className={`state-badge ${active ? "ok" : "muted"}`}
-                            >
-                              {active ? "enabled" : "disabled"}
+              <Collapsible.Root className="tools-menu">
+                <Collapsible.Trigger asChild>
+                  <Button type="button" className="tools-trigger">
+                    <MixerHorizontalIcon />
+                    Tools ({activeToolNames.length}/{props.tools.length})
+                    <ChevronDownIcon className="disclosure-chevron" />
+                  </Button>
+                </Collapsible.Trigger>
+                <Collapsible.Content>
+                  <ScrollArea className="tools-list" type="auto">
+                    {props.tools.map((tool) => {
+                      const active = activeToolNames.includes(tool.name);
+                      const risk = toolRiskLabel(tool.name);
+                      return (
+                        <label key={tool.name} title={tool.description}>
+                          <Checkbox
+                            checked={active}
+                            onCheckedChange={(checked) => {
+                              const next = new Set(activeToolNames);
+                              if (checked === true) next.add(tool.name);
+                              else next.delete(tool.name);
+                              void props.onTools([...next]);
+                            }}
+                          />
+                          <span>
+                            <strong>{tool.name}</strong>
+                            <span className="tool-description">
+                              {tool.description || "No description"}
                             </span>
-                            <span className="scope-badge">
-                              {scopeLabel(tool.sourceInfo?.scope)} scope
+                            <span className="tool-labels">
+                              <span
+                                className={`state-badge ${active ? "ok" : "muted"}`}
+                              >
+                                {active ? "enabled" : "disabled"}
+                              </span>
+                              <span className="scope-badge">
+                                {scopeLabel(tool.sourceInfo?.scope)} scope
+                              </span>
+                              {risk && (
+                                <span className="risk-badge">{risk}</span>
+                              )}
                             </span>
-                            {risk && <span className="risk-badge">{risk}</span>}
                           </span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {props.tools.length === 0 && (
-                    <small>No tools are available for this chat.</small>
-                  )}
-                </div>
-              </details>
-            </div>
-          </details>
+                        </label>
+                      );
+                    })}
+                    {props.tools.length === 0 && (
+                      <small>No tools are available for this chat.</small>
+                    )}
+                  </ScrollArea>
+                </Collapsible.Content>
+              </Collapsible.Root>
+            </Popover.Content>
+          </Popover.Root>
         </div>
       )}
       {!empty && (
-        <details
+        <Disclosure
           className="activity-panel"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.currentTarget.open = false;
-            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
-          }}
+          label={
+            <>
+              <strong>Activity</strong>
+              <span>
+                {currentActivity.phase}: {currentActivity.title}
+              </span>
+            </>
+          }
         >
-          <summary>
-            <strong>Activity</strong>
-            <span>
-              {currentActivity.phase}: {currentActivity.title}
-            </span>
-          </summary>
           <section
             className="agent-timeline"
             aria-label="Plan Act Verify timeline"
           >
             {timeline.map((item) =>
               item.phase === "Verify" ? (
-                <button
+                <Button
                   type="button"
                   className={`timeline-item ${item.state}`}
                   key={item.phase}
@@ -424,7 +471,7 @@ export function ChatPane(props: {
                   <strong>{item.phase}</strong>
                   <span>{item.title}</span>
                   <small>{item.detail}</small>
-                </button>
+                </Button>
               ) : (
                 <div className={`timeline-item ${item.state}`} key={item.phase}>
                   <strong>{item.phase}</strong>
@@ -434,7 +481,7 @@ export function ChatPane(props: {
               ),
             )}
           </section>
-        </details>
+        </Disclosure>
       )}
       {empty ? (
         <EmptyState
@@ -543,16 +590,18 @@ function ToolActivityGroup({
     if (hasError) setOpen((value) => revealDisclosure(value, true));
   }, [hasError]);
   return (
-    <details
+    <Disclosure
       className={`tool-activity-group ${hasError ? "danger" : ""}`}
       open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
+      onOpenChange={setOpen}
+      label={
+        <>
+          Agent activity · {messages.length} step
+          {messages.length === 1 ? "" : "s"}
+          {hasError ? " · Needs attention" : ""}
+        </>
+      }
     >
-      <summary>
-        Agent activity · {messages.length} step
-        {messages.length === 1 ? "" : "s"}
-        {hasError ? " · Needs attention" : ""}
-      </summary>
       <div className="tool-activity-items">
         {messages.map(({ message, index }) => (
           <Message
@@ -566,7 +615,7 @@ function ToolActivityGroup({
           />
         ))}
       </div>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -597,7 +646,7 @@ const Message = memo(function Message({
   const text = textFromContent(message.content);
   const bookmark = () =>
     sessionId && onToggleBookmark(messageIndex, role, text.slice(0, 180));
-  const bookmarkLabel = bookmarked ? "Bookmarked ★" : "Bookmark";
+  const bookmarkLabel = bookmarked ? "Bookmarked" : "Bookmark";
   const tone = message.isError ? "danger" : noticeTone(text);
   const toneClass = tone === "info" ? "" : tone;
   const nextStep = nextStepFor(text);
@@ -617,15 +666,17 @@ const Message = memo(function Message({
         className={`message ${role} ${toneClass}`}
         data-message-index={messageIndex}
       >
-        <details
+        <Disclosure
           className={`tool-card result ${toneClass}`}
           open={toolResultOpen}
-          onToggle={(event) => setToolResultOpen(event.currentTarget.open)}
+          onOpenChange={setToolResultOpen}
+          label={
+            <>
+              {toolDisclosure.label}
+              {message.toolName ? ` · ${message.toolName}` : ""}
+            </>
+          }
         >
-          <summary>
-            {toolDisclosure.label}
-            {message.toolName ? ` · ${message.toolName}` : ""}
-          </summary>
           {images.map((image, index) => (
             <img
               key={index}
@@ -637,23 +688,24 @@ const Message = memo(function Message({
           <WorkspaceText text={text} cwd={cwd} />
           <div className="row-actions">
             {message.isError && (
-              <button
+              <Button
                 type="button"
                 onClick={() =>
                   draft(`Tool failed: ${message.toolName ?? "tool"}\n\n${text}`)
                 }
               >
                 Quote error
-              </button>
+              </Button>
             )}
             {sessionId && (
-              <button type="button" onClick={() => void bookmark()}>
+              <Button type="button" onClick={() => void bookmark()}>
+                {bookmarked ? <BookmarkFilledIcon /> : <BookmarkIcon />}
                 {bookmarkLabel}
-              </button>
+              </Button>
             )}
           </div>
           {nextStep && <div className="next-step">{nextStep}</div>}
-        </details>
+        </Disclosure>
       </div>
     );
   }
@@ -676,9 +728,10 @@ const Message = memo(function Message({
       ))}
       <MessageContent content={message.content} cwd={cwd} />
       {sessionId && (
-        <button type="button" className="link" onClick={() => void bookmark()}>
+        <Button type="button" className="link" onClick={() => void bookmark()}>
+          {bookmarked ? <BookmarkFilledIcon /> : <BookmarkIcon />}
           {bookmarkLabel}
-        </button>
+        </Button>
       )}
       {nextStep && <div className="next-step">{nextStep}</div>}
     </div>
@@ -698,10 +751,9 @@ const StreamingMessage = memo(function StreamingMessage({
   return (
     <div className="message assistant streaming">
       {thinking && (
-        <details className="reasoning-summary">
-          <summary>Reasoning summary</summary>
+        <Disclosure className="reasoning-summary" label="Reasoning summary">
           <WorkspaceText text={thinking} cwd={cwd} />
-        </details>
+        </Disclosure>
       )}
       <WorkspaceText text={text} cwd={cwd} />
     </div>
@@ -756,19 +808,26 @@ function MessageContent({ content, cwd }: { content: any; cwd: string }) {
           return <WorkspaceText key={index} text={part.text} cwd={cwd} />;
         if (part?.type === "thinking" && part.thinking)
           return (
-            <details key={index} className="reasoning-summary">
-              <summary>Reasoning summary</summary>
+            <Disclosure
+              key={index}
+              className="reasoning-summary"
+              label="Reasoning summary"
+            >
               <WorkspaceText text={part.thinking} cwd={cwd} />
-            </details>
+            </Disclosure>
           );
         return null;
       })}
       {toolCalls.length > 0 && (
-        <details className="agent-actions">
-          <summary>
-            Agent actions · {toolCalls.length} call
-            {toolCalls.length === 1 ? "" : "s"}
-          </summary>
+        <Disclosure
+          className="agent-actions"
+          label={
+            <>
+              Agent actions · {toolCalls.length} call
+              {toolCalls.length === 1 ? "" : "s"}
+            </>
+          }
+        >
           <div className="agent-action-items">
             {toolCalls.map(({ part, index }) => {
               const name = part.name ?? part.toolName ?? "tool";
@@ -781,7 +840,7 @@ function MessageContent({ content, cwd }: { content: any; cwd: string }) {
               );
             })}
           </div>
-        </details>
+        </Disclosure>
       )}
     </>
   );

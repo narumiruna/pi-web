@@ -1,3 +1,5 @@
+import { ImageIcon, PaperPlaneIcon, PlusIcon } from "@radix-ui/react-icons";
+import { ScrollArea } from "@radix-ui/themes";
 import { useEffect, useRef, useState } from "react";
 import { createSingleFlight } from "./asyncState";
 import { createAttachmentId } from "./attachmentIds";
@@ -5,6 +7,7 @@ import { getPastedImageFiles } from "./clipboardImages";
 import { appendDraftText, type ComposerIntent } from "./composerIntents";
 import { clearSubmittedImages, clearSubmittedText } from "./composerState";
 import type { AttachedImage } from "./types";
+import { Button, TextArea } from "./ui";
 
 type ComposerCommand = {
   name?: string;
@@ -53,14 +56,14 @@ export function EmptyState({
         </p>
         <section className="quick-actions" aria-label="Starting points">
           {actions.map(([label, prompt]) => (
-            <button
+            <Button
               type="button"
               key={label}
               disabled={running}
               onClick={() => void onSend(prompt)}
             >
               {label}
-            </button>
+            </Button>
           ))}
         </section>
       </section>
@@ -161,20 +164,20 @@ export function ChatComposer({
           </div>
         )}
         {slashCommands.length > 0 && (
-          <div className="slash-menu">
+          <ScrollArea className="slash-menu" type="auto">
             {slashCommands.slice(0, 8).map((cmd) => (
-              <button
+              <Button
                 type="button"
                 key={cmd.name}
                 onClick={() => setText(`/${cmd.name} `)}
               >
                 /{cmd.name}
                 <small>{cmd.description}</small>
-              </button>
+              </Button>
             ))}
-          </div>
+          </ScrollArea>
         )}
-        <textarea
+        <TextArea
           ref={textInput}
           value={text}
           aria-label="Message pi"
@@ -208,21 +211,24 @@ export function ChatComposer({
                 event.target.files && void attach(event.target.files)
               }
             />
-            <button type="button" onClick={() => fileInput.current?.click()}>
+            <Button type="button" onClick={() => fileInput.current?.click()}>
+              <ImageIcon />
               Add image
-            </button>
+            </Button>
             {running && (
-              <button type="button" onClick={() => void submit("followUp")}>
+              <Button type="button" onClick={() => void submit("followUp")}>
+                <PlusIcon />
                 Follow-up
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
               className="primary"
               onClick={() => void submit(running ? "steer" : undefined)}
             >
+              <PaperPlaneIcon />
               {running ? "Steer" : "Send"}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { Checkbox, Tabs } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AuthSettings, providerConfigured, providerName } from "./AuthSettings";
 import { api } from "./api";
@@ -22,6 +23,7 @@ import {
   UsageSection,
 } from "./controlSections";
 import type { ModelInfo, SessionInfo, Theme, ToolInfo } from "./types";
+import { Button, SelectField } from "./ui";
 import { scopeLabel, sessionTitle, toolRiskLabel } from "./uiText";
 import type { UsageSnapshot } from "./usage";
 
@@ -411,30 +413,33 @@ export function ControlRoom({
             {selected ? "Session ready" : "No session"}
           </span>
           <span className="status-pill info">{model}</span>
-          <button
+          <Button
             type="button"
             className="primary"
             onClick={() => void refresh()}
           >
             {loading ? "Refreshing…" : "Refresh"}
-          </button>
+          </Button>
         </div>
       </section>
 
-      <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Control room sections">
+      <Tabs.Root
+        className="settings-layout"
+        value={section}
+        onValueChange={(value) => setSection(value as Section)}
+      >
+        <Tabs.List className="settings-nav" aria-label="Control room sections">
           {navItems.map((item) => (
-            <button
-              type="button"
+            <Tabs.Trigger
               key={item.key}
-              className={`${section === item.key ? "active" : ""} ${item.tone ?? ""}`}
-              onClick={() => setSection(item.key)}
+              value={item.key}
+              className={item.tone ?? ""}
             >
               <span>{item.label}</span>
               <small>{item.meta}</small>
-            </button>
+            </Tabs.Trigger>
           ))}
-        </nav>
+        </Tabs.List>
 
         <section className="settings-workspace">
           {section === "session" && (
@@ -453,19 +458,19 @@ export function ControlRoom({
                   </p>
                 </div>
                 <div className="hero-actions">
-                  <button
+                  <Button
                     type="button"
                     disabled={!selected}
                     onClick={() => void renameSession()}
                   >
                     Rename
-                  </button>
+                  </Button>
                   {[
                     ["", "HTML"],
                     ["?format=json", "JSON"],
                     ["?format=md", "Markdown"],
                   ].map(([query, label]) => (
-                    <button
+                    <Button
                       type="button"
                       key={label}
                       disabled={!selected}
@@ -478,16 +483,16 @@ export function ControlRoom({
                       }
                     >
                       Export {label}
-                    </button>
+                    </Button>
                   ))}
-                  <button
+                  <Button
                     type="button"
                     className="danger"
                     disabled={!selected}
                     onClick={() => selected && onDeleteSession(selected)}
                   >
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
               {!selected && (
@@ -529,13 +534,13 @@ export function ControlRoom({
                   </h2>
                   <p>{gitDetail}</p>
                 </div>
-                <button
+                <Button
                   type="button"
                   className="primary"
                   onClick={() => void refresh()}
                 >
                   Refresh
-                </button>
+                </Button>
               </div>
               {gitFiles.length > 0 ? (
                 <div className="compact-list git-file-list">
@@ -584,26 +589,27 @@ export function ControlRoom({
                       : "Select a session to switch models. API keys are saved globally for this pi-web runtime."}
                   </p>
                 </div>
-                <select
+                <SelectField
+                  ariaLabel="Session model"
                   value={currentModelValue}
                   disabled={!selected || models.length === 0}
-                  onChange={(event) => void onModel(event.target.value)}
-                >
-                  <option value="">auto model</option>
-                  {currentModelValue && !currentModelKnown && (
-                    <option value={currentModelValue}>
-                      {currentModelValue}
-                    </option>
-                  )}
-                  {models.map((item) => (
-                    <option
-                      key={`${item.provider}/${item.id}`}
-                      value={`${item.provider}/${item.id}`}
-                    >
-                      {item.name || item.id} · {item.provider}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(value) => void onModel(value)}
+                  options={[
+                    { value: "", label: "auto model" },
+                    ...(currentModelValue && !currentModelKnown
+                      ? [
+                          {
+                            value: currentModelValue,
+                            label: currentModelValue,
+                          },
+                        ]
+                      : []),
+                    ...models.map((item) => ({
+                      value: `${item.provider}/${item.id}`,
+                      label: `${item.name || item.id} · ${item.provider}`,
+                    })),
+                  ]}
+                />
               </div>
 
               <AuthSettings
@@ -626,7 +632,7 @@ export function ControlRoom({
                   <p>Toggle the selected session's tool access.</p>
                 </div>
                 <div className="hero-actions">
-                  <button
+                  <Button
                     type="button"
                     disabled={!selected || tools.length === 0 || savingTools}
                     onClick={() =>
@@ -634,14 +640,14 @@ export function ControlRoom({
                     }
                   >
                     Enable all
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     disabled={!selected || tools.length === 0 || savingTools}
                     onClick={() => void updateTools([])}
                   >
                     Disable all
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="compact-list">
@@ -653,14 +659,15 @@ export function ControlRoom({
                       className={`compact-row tool-row ${active ? "active" : "disabled"}`}
                       key={tool.name}
                       title={tool.description}
+                      htmlFor={`tool-${tool.name}`}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
+                        id={`tool-${tool.name}`}
                         disabled={!selected || savingTools}
                         checked={active}
-                        onChange={(event) => {
+                        onCheckedChange={(checked) => {
                           const next = new Set(activeToolNames);
-                          if (event.target.checked) next.add(tool.name);
+                          if (checked === true) next.add(tool.name);
                           else next.delete(tool.name);
                           void updateTools([...next]);
                         }}
@@ -720,13 +727,14 @@ export function ControlRoom({
                       className={`compact-row skill-row ${enabled ? "active" : "disabled"}`}
                       key={filePath ?? name}
                       title={description}
+                      htmlFor={`skill-${filePath ?? name}`}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
+                        id={`skill-${filePath ?? name}`}
                         disabled={!filePath || savingSkill === filePath}
                         checked={enabled}
-                        onChange={(event) =>
-                          void setSkillInvocation(skill, event.target.checked)
+                        onCheckedChange={(checked) =>
+                          void setSkillInvocation(skill, checked === true)
                         }
                       />
                       <strong>{name}</strong>
@@ -809,15 +817,15 @@ export function ControlRoom({
                     profile-only tool limiting for new sessions.
                   </p>
                 </div>
-                <select
+                <SelectField
+                  ariaLabel="Permission profile"
                   value={permissionProfile}
-                  onChange={(event) =>
-                    void savePermissionProfile(event.target.value)
-                  }
-                >
-                  <option value="safe">safe</option>
-                  <option value="full">full</option>
-                </select>
+                  onValueChange={(value) => void savePermissionProfile(value)}
+                  options={[
+                    { value: "safe", label: "safe" },
+                    { value: "full", label: "full" },
+                  ]}
+                />
               </div>
               <pre className="diff-output">
                 {JSON.stringify(data.permissions ?? {}, null, 2)}
@@ -837,7 +845,7 @@ export function ControlRoom({
             />
           )}
         </section>
-      </div>
+      </Tabs.Root>
     </div>
   );
 }

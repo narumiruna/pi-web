@@ -1,4 +1,20 @@
-import { useRef } from "react";
+import {
+  ActivityLogIcon,
+  ChatBubbleIcon,
+  CheckCircledIcon,
+  ChevronDownIcon,
+  CodeIcon,
+  EyeOpenIcon,
+  FileTextIcon,
+  GearIcon,
+  HamburgerMenuIcon,
+  MixerHorizontalIcon,
+  ReaderIcon,
+  ReloadIcon,
+} from "@radix-ui/react-icons";
+import { Badge, DropdownMenu, Tabs } from "@radix-ui/themes";
+import type { ReactNode } from "react";
+import { Button } from "./ui";
 
 export type AppTab =
   | "chat"
@@ -59,6 +75,19 @@ export function statusLabel(running: boolean): "Ready" | "Working" {
   return running ? "Working" : "Ready";
 }
 
+function NavigationIcon({ tab }: { tab: AppTab }): ReactNode {
+  if (tab === "chat") return <ChatBubbleIcon />;
+  if (tab === "terminal") return <CodeIcon />;
+  if (tab === "diff") return <ReaderIcon />;
+  if (tab === "validation") return <CheckCircledIcon />;
+  if (tab === "preview") return <EyeOpenIcon />;
+  if (tab === "file") return <FileTextIcon />;
+  if (tab === "workbench") return <MixerHorizontalIcon />;
+  if (tab === "evaluation") return <ActivityLogIcon />;
+  if (tab === "replay") return <ReloadIcon />;
+  return <GearIcon />;
+}
+
 export function AppNavigation({
   tab,
   running,
@@ -74,85 +103,83 @@ export function AppNavigation({
   onTab: (tab: AppTab) => void;
   onToggleSidebar: () => void;
 }) {
-  const moreRef = useRef<HTMLDetailsElement>(null);
   const groups = navigationGroups(hasFile);
   const activeSecondary = groups
     .flatMap((group) => group.items)
     .find((item) => item.tab === tab);
 
-  function closeMore(returnFocus = false) {
-    moreRef.current?.removeAttribute("open");
-    if (returnFocus)
-      moreRef.current?.querySelector<HTMLElement>("summary")?.focus();
-  }
-
-  function selectTab(next: AppTab) {
-    onTab(next);
-    closeMore();
-  }
-
   return (
     <header className="topbar">
       <div className="topbar-main">
         {sidebarHidden && (
-          <button
+          <Button
             type="button"
             className="sidebar-toggle"
             aria-controls="history-sidebar"
             aria-expanded={!sidebarHidden}
             onClick={onToggleSidebar}
           >
+            <HamburgerMenuIcon />
             History
-          </button>
+          </Button>
         )}
         <nav className="tabs" aria-label="Workspace views">
-          {PRIMARY_DESTINATIONS.map((item) => (
-            <button
-              type="button"
-              key={item.tab}
-              aria-current={tab === item.tab ? "page" : undefined}
-              className={tab === item.tab ? "active" : ""}
-              onClick={() => selectTab(item.tab)}
-            >
-              {item.label}
-            </button>
-          ))}
-          <details
-            ref={moreRef}
-            className="more-tabs"
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              closeMore(true);
-            }}
+          <Tabs.Root
+            value={
+              PRIMARY_DESTINATIONS.some((item) => item.tab === tab) ? tab : ""
+            }
+            onValueChange={(value) => onTab(value as AppTab)}
           >
-            <summary className={activeSecondary ? "active" : ""}>
-              {SECONDARY_NAVIGATION_LABEL}
-              {activeSecondary ? ` · ${activeSecondary.label}` : ""}
-            </summary>
-            <div className="more-tabs-menu">
-              {groups.map((group) => (
-                <section className="more-tabs-group" key={group.label}>
-                  <div className="more-tabs-heading">{group.label}</div>
-                  {group.items.map((item) => (
-                    <button
-                      type="button"
-                      key={item.tab}
-                      aria-current={tab === item.tab ? "page" : undefined}
-                      className={tab === item.tab ? "active" : ""}
-                      onClick={() => selectTab(item.tab)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </section>
+            <Tabs.List>
+              {PRIMARY_DESTINATIONS.map((item) => (
+                <Tabs.Trigger key={item.tab} value={item.tab}>
+                  <NavigationIcon tab={item.tab} />
+                  {item.label}
+                </Tabs.Trigger>
               ))}
-            </div>
-          </details>
+            </Tabs.List>
+          </Tabs.Root>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
+              <Button
+                type="button"
+                className={activeSecondary ? "active" : ""}
+                aria-label="Open workspace tools"
+              >
+                {activeSecondary ? (
+                  <NavigationIcon tab={activeSecondary.tab} />
+                ) : (
+                  <MixerHorizontalIcon />
+                )}
+                {activeSecondary?.label ?? SECONDARY_NAVIGATION_LABEL}
+                <ChevronDownIcon className="disclosure-chevron" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content className="more-tabs-menu" align="start">
+              {groups.map((group, groupIndex) => (
+                <div key={group.label}>
+                  {groupIndex > 0 && <DropdownMenu.Separator />}
+                  <DropdownMenu.Label>{group.label}</DropdownMenu.Label>
+                  {group.items.map((item) => (
+                    <DropdownMenu.Item
+                      key={item.tab}
+                      className={tab === item.tab ? "active" : ""}
+                      onSelect={() => onTab(item.tab)}
+                    >
+                      <NavigationIcon tab={item.tab} />
+                      {item.label}
+                    </DropdownMenu.Item>
+                  ))}
+                </div>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
         </nav>
       </div>
-      <div
+      <Badge
         className="statusline"
+        color={running ? "blue" : "gray"}
+        variant="surface"
         role="status"
         aria-label={`Agent status: ${statusLabel(running)}`}
       >
@@ -160,8 +187,8 @@ export function AppNavigation({
           className={`status-dot ${running ? "ok" : "muted"}`}
           aria-hidden="true"
         />
-        <strong>{statusLabel(running)}</strong>
-      </div>
+        {statusLabel(running)}
+      </Badge>
     </header>
   );
 }

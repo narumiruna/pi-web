@@ -1,3 +1,4 @@
+import { Theme } from "@radix-ui/themes";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -9,29 +10,33 @@ const noop = vi.fn();
 describe("fixed workspace UI", () => {
   it("renders the launch workspace path as read-only without worktree creation", () => {
     const html = renderToStaticMarkup(
-      createElement(Sidebar, {
-        cwd: "/workspace/project",
-        sessions: [],
-        selected: null,
-        deletingSessionId: "",
-        files: [],
-        filePath: "",
-        activeFilePath: "",
-        onNewSession: noop,
-        creatingSession: false,
-        onHide: noop,
-        permissionProfile: "full",
-        onPermissionProfile: noop,
-        onSelectSession: noop,
-        onSelectSearchResult: noop,
-        onDeleteSession: noop,
-        onFilePath: noop,
-        onOpenFile: noop,
-      }),
+      createElement(
+        Theme,
+        null,
+        createElement(Sidebar, {
+          cwd: "/workspace/project",
+          sessions: [],
+          selected: null,
+          deletingSessionId: "",
+          files: [],
+          filePath: "",
+          activeFilePath: "",
+          onNewSession: noop,
+          creatingSession: false,
+          onHide: noop,
+          permissionProfile: "full",
+          onPermissionProfile: noop,
+          onSelectSession: noop,
+          onSelectSearchResult: noop,
+          onDeleteSession: noop,
+          onFilePath: noop,
+          onOpenFile: noop,
+        }),
+      ),
     );
 
-    expect(html).toContain(
-      '<input class="input" readOnly="" value="/workspace/project"/>',
+    expect(html).toMatch(
+      /<input[^>]+aria-label="Workspace path"[^>]+readOnly=""[^>]+value="\/workspace\/project"/,
     );
     expect(html).not.toContain("Create parallel worktree");
   });

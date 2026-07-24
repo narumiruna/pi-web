@@ -1,3 +1,15 @@
+import {
+  ArchiveIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  Cross2Icon,
+  FileIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  ResetIcon,
+} from "@radix-ui/react-icons";
+import { ScrollArea, Tabs } from "@radix-ui/themes";
+import { Collapsible } from "radix-ui";
 import type { CSSProperties, MouseEvent, PointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
@@ -5,6 +17,13 @@ import { createLatestRequestGate } from "./asyncState";
 import { isMobileLayout } from "./responsiveLayout";
 import { RECENT_CHAT_LIMIT, visibleSidebarSessions } from "./sidebarSessions";
 import type { FileEntry, SessionInfo } from "./types";
+import {
+  Button,
+  IconButton,
+  SelectField,
+  TextInput,
+  TextInputSlot,
+} from "./ui";
 import { sessionTitle } from "./uiText";
 
 const SIDEBAR_LAYOUT_STORAGE_KEY = "pi-web.sidebar-layout";
@@ -102,6 +121,7 @@ export function Sidebar({
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sessionFilter, setSessionFilter] = useState("");
   const [showAllSessions, setShowAllSessions] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [messageSearch, setMessageSearch] = useState("");
   const [messageSearchError, setMessageSearchError] = useState("");
   const [messageResults, setMessageResults] = useState<
@@ -212,58 +232,59 @@ export function Sidebar({
       >
         <div className="sidebar-header">
           <div className="brand">π web</div>
-          <button
-            type="button"
+          <IconButton
+            label="Hide history sidebar"
             className="sidebar-hide"
-            aria-label="Hide history sidebar"
             onClick={onHide}
           >
-            Hide
-          </button>
+            <ChevronLeftIcon />
+          </IconButton>
         </div>
 
-        <details
-          className="panel workspace-panel"
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            event.stopPropagation();
-            event.currentTarget.open = false;
-            event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
-          }}
-        >
-          <summary>
-            <span>Workspace</span>
-            <small title={cwd}>{workspaceName(cwd)}</small>
-          </summary>
-          <div className="workspace-settings-body">
-            <label className="workspace-input">
+        <Collapsible.Root className="panel workspace-panel">
+          <Collapsible.Trigger asChild>
+            <Button type="button" className="workspace-trigger">
+              <span>Workspace</span>
+              <small title={cwd}>{workspaceName(cwd)}</small>
+              <ChevronRightIcon className="disclosure-chevron" />
+            </Button>
+          </Collapsible.Trigger>
+          <Collapsible.Content className="workspace-settings-body" forceMount>
+            <div className="workspace-input">
               <span className="panel-title">Path</span>
-              <input className="input" value={cwd} readOnly />
-            </label>
-            <label className="workspace-input">
-              <span className="panel-title">Permission</span>
-              <select
+              <TextInput
                 className="input"
+                aria-label="Workspace path"
+                value={cwd}
+                readOnly
+              />
+            </div>
+            <div className="workspace-input">
+              <span className="panel-title">Permission</span>
+              <SelectField
+                className="input"
+                ariaLabel="Permission profile"
                 value={permissionProfile}
-                onChange={(event) => onPermissionProfile(event.target.value)}
-              >
-                <option value="safe">safe</option>
-                <option value="full">full</option>
-              </select>
-            </label>
-            <button
+                onValueChange={onPermissionProfile}
+                options={[
+                  { value: "safe", label: "safe" },
+                  { value: "full", label: "full" },
+                ]}
+              />
+            </div>
+            <Button
               type="button"
               className="layout-reset"
               title="Restore default sidebar width"
               onClick={() => setSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
             >
-              Reset sidebar width
-            </button>
-          </div>
-        </details>
+              <ResetIcon />
+              Reset width
+            </Button>
+          </Collapsible.Content>
+        </Collapsible.Root>
 
-        <button
+        <Button
           type="button"
           className="primary new-session-button"
           disabled={!canStartSession || creatingSession}
@@ -274,237 +295,244 @@ export function Sidebar({
           }
           onClick={onNewSession}
         >
+          <PlusIcon />
           {creatingSession ? "Starting…" : "New chat"}
-        </button>
+        </Button>
 
-        <div
-          className="sidebar-tab-buttons"
-          role="tablist"
-          aria-label="Sidebar"
+        <Tabs.Root
+          className="sidebar-tabs"
+          value={pane}
+          onValueChange={(value) => setPane(value as SidebarPane)}
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={pane === "sessions"}
-            className={pane === "sessions" ? "active" : ""}
-            onClick={() => setPane("sessions")}
-          >
-            History <span>{sessions.length}</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={pane === "files"}
-            className={pane === "files" ? "active" : ""}
-            onClick={() => setPane("files")}
-          >
-            Files <span className="auto-refresh">auto</span>
-          </button>
-        </div>
+          <Tabs.List className="sidebar-tab-buttons" aria-label="Sidebar">
+            <Tabs.Trigger value="sessions">
+              History <span>{sessions.length}</span>
+            </Tabs.Trigger>
+            <Tabs.Trigger value="files">
+              Files <span className="auto-refresh">auto</span>
+            </Tabs.Trigger>
+          </Tabs.List>
 
-        {pane === "sessions" ? (
-          <section className="panel sidebar-tab-panel sessions-panel">
-            <input
-              className="input sidebar-search"
-              value={sessionFilter}
-              onChange={(event) => setSessionFilter(event.target.value)}
-              placeholder="Find a chat"
-            />
-            <details
-              className="message-search"
-              onKeyDown={(event) => {
-                if (event.key !== "Escape") return;
-                event.preventDefault();
-                event.stopPropagation();
-                event.currentTarget.open = false;
-                event.currentTarget
-                  .querySelector<HTMLElement>("summary")
-                  ?.focus();
-              }}
-            >
-              <summary>Search all messages</summary>
-              <div className="message-search-row">
-                <input
-                  className="input sidebar-search"
-                  value={messageSearch}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    messageSearchGate.invalidate();
-                    setMessageSearch(value);
-                    setMessageSearchError("");
-                    if (!value.trim()) setMessageResults([]);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void searchMessages();
-                  }}
-                  placeholder="Search all messages"
-                />
-                <button type="button" onClick={() => void searchMessages()}>
-                  Search
-                </button>
-              </div>
-              {messageSearchError && (
-                <div className="empty-small danger">{messageSearchError}</div>
-              )}
-              {messageResults.length > 0 && (
-                <div className="session-list search-results">
-                  {messageResults.map((result) => {
-                    const session = sessions.find(
-                      (item) => item.id === result.sessionId,
-                    );
+          <Tabs.Content value="sessions" className="sidebar-tab-content">
+            <section className="panel sidebar-tab-panel sessions-panel">
+              <TextInput
+                className="input sidebar-search"
+                value={sessionFilter}
+                onChange={(event) => setSessionFilter(event.target.value)}
+                placeholder="Find a chat"
+                aria-label="Find a chat"
+              >
+                <TextInputSlot>
+                  <MagnifyingGlassIcon />
+                </TextInputSlot>
+              </TextInput>
+              <Collapsible.Root
+                className="message-search"
+                open={messageSearchOpen}
+                onOpenChange={setMessageSearchOpen}
+              >
+                <Collapsible.Trigger asChild>
+                  <Button type="button" className="message-search-trigger">
+                    <MagnifyingGlassIcon />
+                    Search all messages
+                  </Button>
+                </Collapsible.Trigger>
+                <Collapsible.Content>
+                  <div className="message-search-row">
+                    <TextInput
+                      className="input sidebar-search"
+                      value={messageSearch}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        messageSearchGate.invalidate();
+                        setMessageSearch(value);
+                        setMessageSearchError("");
+                        if (!value.trim()) setMessageResults([]);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void searchMessages();
+                      }}
+                      placeholder="Search all messages"
+                      aria-label="Search all messages"
+                    />
+                    <Button type="button" onClick={() => void searchMessages()}>
+                      Search
+                    </Button>
+                  </div>
+                  {messageSearchError && (
+                    <div className="empty-small danger">
+                      {messageSearchError}
+                    </div>
+                  )}
+                  {messageResults.length > 0 && (
+                    <div className="session-list search-results">
+                      {messageResults.map((result) => {
+                        const session = sessions.find(
+                          (item) => item.id === result.sessionId,
+                        );
+                        return (
+                          <Button
+                            type="button"
+                            className="session"
+                            key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
+                            disabled={!session || creatingSession}
+                            onClick={() =>
+                              session &&
+                              onSelectSearchResult(
+                                session,
+                                result.messageIndex ?? 0,
+                              )
+                            }
+                          >
+                            <span className="session-heading">
+                              <span>{result.role ?? "message"}</span>
+                            </span>
+                            <small>{result.excerpt}</small>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Collapsible.Content>
+              </Collapsible.Root>
+              <ScrollArea className="session-list" type="auto">
+                <div className="session-list-content">
+                  {filteredSessions.map((session) => {
+                    const title = sessionTitle(session);
+                    const deleting = deletingSessionId === session.id;
+                    const active = selected?.id === session.id;
                     return (
-                      <button
-                        type="button"
-                        className="session"
-                        key={`${result.sessionId}-${result.messageIndex}-${result.excerpt}`}
-                        disabled={!session || creatingSession}
-                        onClick={() =>
-                          session &&
-                          onSelectSearchResult(
-                            session,
-                            result.messageIndex ?? 0,
-                          )
-                        }
+                      <div
+                        key={session.id}
+                        className={`session-row ${active ? "active" : ""}`}
                       >
-                        <span className="session-heading">
-                          <span>{result.role ?? "message"}</span>
+                        <Button
+                          type="button"
+                          className={`session ${active ? "active" : ""}`}
+                          disabled={deleting || creatingSession}
+                          onClick={() => onSelectSession(session)}
+                        >
+                          <span className="session-heading">
+                            <span>{title}</span>
+                            {session.cwd.includes("/worktrees/") && (
+                              <em>worktree</em>
+                            )}
+                            {active && <em>active</em>}
+                          </span>
+                          <span className="session-meta">
+                            <span title={session.cwd}>
+                              {workspaceName(session.cwd)}
+                            </span>
+                            <span
+                              title={`${formatRelativeTime(session.modified)} · ${session.messageCount} messages`}
+                            >
+                              {formatRelativeTime(session.modified)} ·{" "}
+                              {session.messageCount} msgs
+                            </span>
+                          </span>
+                        </Button>
+                        <IconButton
+                          label={`Delete ${title}`}
+                          className="session-delete"
+                          disabled={deleting}
+                          onClick={(event) => onDeleteSession(session, event)}
+                        >
+                          {deleting ? "…" : <Cross2Icon />}
+                        </IconButton>
+                      </div>
+                    );
+                  })}
+                  {hasMoreSessions && (
+                    <Button
+                      type="button"
+                      className="show-all-sessions"
+                      onClick={() => setShowAllSessions(true)}
+                    >
+                      Show all {sessions.length} chats
+                    </Button>
+                  )}
+                  {showAllSessions &&
+                    !sessionFilter.trim() &&
+                    sessions.length > RECENT_CHAT_LIMIT && (
+                      <Button
+                        type="button"
+                        className="show-all-sessions"
+                        onClick={() => setShowAllSessions(false)}
+                      >
+                        Show recent chats
+                      </Button>
+                    )}
+                  {filteredSessions.length === 0 && (
+                    <div className="empty-small">
+                      {sessionFilter.trim()
+                        ? "No matching chats."
+                        : "No chats yet."}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </section>
+          </Tabs.Content>
+
+          <Tabs.Content value="files" className="sidebar-tab-content">
+            <section className="panel sidebar-tab-panel files">
+              <div className="panel-title">
+                <span>Files</span>
+                <span className="file-panel-actions">
+                  <span>{files.length} items</span>
+                  {filePath && (
+                    <Button
+                      type="button"
+                      className="link"
+                      onClick={() =>
+                        onFilePath(filePath.split("/").slice(0, -1).join("/"))
+                      }
+                    >
+                      up
+                    </Button>
+                  )}
+                </span>
+              </div>
+              <div className="file-path" title={filePath || "."}>
+                {filePath || "."}
+              </div>
+              <ScrollArea className="file-list" type="auto">
+                <div className="file-list-content">
+                  {files.map((entry) => {
+                    const activeFile = entry.path === activeFilePath;
+                    return (
+                      <Button
+                        type="button"
+                        key={entry.path}
+                        className={`file-row ${entry.type} ${activeFile ? "active" : ""}`}
+                        aria-current={activeFile ? "page" : undefined}
+                        title={entry.path}
+                        onClick={() => onOpenFile(entry)}
+                      >
+                        <span className="file-row-icon" aria-hidden="true">
+                          {entry.type === "directory" ? (
+                            <ArchiveIcon />
+                          ) : (
+                            <FileIcon />
+                          )}
                         </span>
-                        <small>{result.excerpt}</small>
-                      </button>
+                        <span className="file-row-name">{entry.name}</span>
+                      </Button>
                     );
                   })}
                 </div>
-              )}
-            </details>
-            <div className="session-list">
-              {filteredSessions.map((session) => {
-                const title = sessionTitle(session);
-                const deleting = deletingSessionId === session.id;
-                const active = selected?.id === session.id;
-                return (
-                  <div
-                    key={session.id}
-                    className={`session-row ${active ? "active" : ""}`}
-                  >
-                    <button
-                      type="button"
-                      className={`session ${active ? "active" : ""}`}
-                      disabled={deleting || creatingSession}
-                      onClick={() => onSelectSession(session)}
-                    >
-                      <span className="session-heading">
-                        <span>{title}</span>
-                        {session.cwd.includes("/worktrees/") && (
-                          <em>worktree</em>
-                        )}
-                        {active && <em>active</em>}
-                      </span>
-                      <span className="session-meta">
-                        <span title={session.cwd}>
-                          {workspaceName(session.cwd)}
-                        </span>
-                        <span
-                          title={`${formatRelativeTime(session.modified)} · ${session.messageCount} messages`}
-                        >
-                          {formatRelativeTime(session.modified)} ·{" "}
-                          {session.messageCount} msgs
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="session-delete"
-                      aria-label={`Delete ${title}`}
-                      title="Delete chat"
-                      disabled={deleting}
-                      onClick={(event) => onDeleteSession(session, event)}
-                    >
-                      {deleting ? "…" : "×"}
-                    </button>
-                  </div>
-                );
-              })}
-              {hasMoreSessions && (
-                <button
-                  type="button"
-                  className="show-all-sessions"
-                  onClick={() => setShowAllSessions(true)}
-                >
-                  Show all {sessions.length} chats
-                </button>
-              )}
-              {showAllSessions &&
-                !sessionFilter.trim() &&
-                sessions.length > RECENT_CHAT_LIMIT && (
-                  <button
-                    type="button"
-                    className="show-all-sessions"
-                    onClick={() => setShowAllSessions(false)}
-                  >
-                    Show recent chats
-                  </button>
-                )}
-              {filteredSessions.length === 0 && (
-                <div className="empty-small">
-                  {sessionFilter.trim()
-                    ? "No matching chats."
-                    : "No chats yet."}
-                </div>
-              )}
-            </div>
-          </section>
-        ) : (
-          <section className="panel sidebar-tab-panel files">
-            <div className="panel-title">
-              <span>Files</span>
-              <span className="file-panel-actions">
-                <span>{files.length} items</span>
-                {filePath && (
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() =>
-                      onFilePath(filePath.split("/").slice(0, -1).join("/"))
-                    }
-                  >
-                    up
-                  </button>
-                )}
-              </span>
-            </div>
-            <div className="file-path" title={filePath || "."}>
-              {filePath || "."}
-            </div>
-            <div className="file-list">
-              {files.map((entry) => {
-                const activeFile = entry.path === activeFilePath;
-                return (
-                  <button
-                    type="button"
-                    key={entry.path}
-                    className={`file-row ${entry.type} ${activeFile ? "active" : ""}`}
-                    aria-current={activeFile ? "page" : undefined}
-                    title={entry.path}
-                    onClick={() => onOpenFile(entry)}
-                  >
-                    <span className="file-row-icon" aria-hidden="true">
-                      {entry.type === "directory" ? "▸" : "•"}
-                    </span>
-                    <span className="file-row-name">{entry.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        )}
+              </ScrollArea>
+            </section>
+          </Tabs.Content>
+        </Tabs.Root>
       </aside>
-      <button
+      <Button
         type="button"
         className="sidebar-width-resizer"
         aria-label="Resize history sidebar"
         onPointerDown={startSidebarWidthResize}
       />
-      <button
+      <Button
         type="button"
         className="sidebar-backdrop"
         aria-label="Close history sidebar"

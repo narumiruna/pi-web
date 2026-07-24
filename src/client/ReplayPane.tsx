@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { UploadIcon } from "@radix-ui/react-icons";
+import { useRef, useState } from "react";
+import { Button } from "./ui";
 
 type ReplayPart = { text?: string; thinking?: string; type?: string };
 type ReplayMessage = {
@@ -17,6 +19,7 @@ function textFromContent(content: ReplayMessage["content"]): string {
 
 export function ReplayPane() {
   const [messages, setMessages] = useState<ReplayMessage[]>([]);
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
   async function load(file: File) {
     const json = JSON.parse(await file.text()) as {
@@ -38,12 +41,18 @@ export function ReplayPane() {
             </p>
           </div>
           <input
+            ref={fileInput}
             type="file"
             accept="application/json,.json"
+            hidden
             onChange={(event) =>
               event.target.files?.[0] && void load(event.target.files[0])
             }
           />
+          <Button type="button" onClick={() => fileInput.current?.click()}>
+            <UploadIcon />
+            Load JSON export
+          </Button>
         </div>
       </section>
       <section className="messages replay-messages">

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "./api";
+import { Button, TextInput } from "./ui";
 
 type JsonObject = Record<string, unknown>;
 type DashboardValue =
@@ -152,8 +153,9 @@ export function AuthSettings({
               </td>
               <td>
                 {canSaveKey ? (
-                  <input
+                  <TextInput
                     type="password"
+                    aria-label={`${name} API key`}
                     placeholder={configured ? "•••••• saved" : "Paste API key"}
                     value={apiKeyInputs[id] ?? ""}
                     onChange={(event) =>
@@ -172,7 +174,7 @@ export function AuthSettings({
               <td>
                 <span className="row-actions">
                   {canSaveKey && (
-                    <button
+                    <Button
                       type="button"
                       disabled={
                         !apiKeyInputs[id]?.trim() || savingProvider === id
@@ -180,9 +182,9 @@ export function AuthSettings({
                       onClick={() => void saveApiKey(provider)}
                     >
                       Save
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
                     type="button"
                     disabled={
                       !id || !clearable(provider) || savingProvider === id
@@ -190,7 +192,7 @@ export function AuthSettings({
                     onClick={() => void clearApiKey(provider)}
                   >
                     Clear
-                  </button>
+                  </Button>
                 </span>
               </td>
             </tr>
