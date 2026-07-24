@@ -35,7 +35,7 @@
     "ci": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.82.0",
     "@fastify/static": "^10.1.0",
     "@fastify/websocket": "^11.2.0",
     "@radix-ui/colors": "^3.0.0",
